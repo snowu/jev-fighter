@@ -9,16 +9,18 @@ export default {
   signature:
     "Armor and rage: her heavy swings shrug off one high or mid hit and keep going (low attacks and throws stop them), and below a third of her health she hits much harder. Heavy and slow on her feet, falls quickly out of juggles.",
   // Renderer-only: silhouette and weapon shape (the sim never reads this).
+  // Renderer-only: silhouette, colours, weapon and clip per move (the sim never reads this).
   look: {
-    build: [1.28, 0.98], accent: 0x3b2618, weapon: "axe", weaponLength: 1.25, parts: ["pauldrons", "horns", "belt"], // capsule fallback
-    model: "Barbarian", scale: 0.98, headScale: 0.7, show: ["2H_Axe", "Barbarian_Hat", "Barbarian_Cape"],
+    build: [1.12, 1.04], trim: 0x3b2618, accent: 0x4a4f57, weapon: "axe", weaponLength: 1.25,
+    parts: ["horned_helm", "fur_mantle"],
     moves: {
-      jab: "2H_Melee_Attack_Stab", jab2: "Block_Attack", finisher: "2H_Melee_Attack_Slice",
-      overhead: "2H_Melee_Attack_Chop", shin: "2H_Melee_Attack_Slice", lift: "1H_Melee_Attack_Slice_Diagonal",
-      whirlwind: "2H_Melee_Attack_Spin", bullrush: "Block_Attack", splitter: "2H_Melee_Attack_Chop",
-      headbutt: "Unarmed_Melee_Attack_Punch_A", wakeup: "2H_Melee_Attack_Slice",
+      jab: "Sword_Regular_A", jab2: "Melee_Hook", finisher: "Zombie_Scratch",
+      overhead: "TreeChopping_Loop", shin: "Sword_Attack", lift: "Zombie_Scratch",
+      whirlwind: "Sword_Attack", bullrush: "Shield_Dash_RM", splitter: "TreeChopping_Loop",
+      headbutt: "Melee_Hook", wakeup: "Sword_Regular_A",
     },
   },
+
   hp: 110,
   walkForward: 2.3,
   walkBack: 1.5,

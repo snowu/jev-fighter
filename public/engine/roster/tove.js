@@ -9,16 +9,16 @@ export default {
   signature:
     "Spacing: her spear hits hardest with the tip at full reach and stuns longer there, but hits weakly point blank. Longest reach in the roster, a long backdash and a retreating thrust to keep people out; light, so she floats long in juggles.",
   look: {
-    build: [0.86, 1.14], accent: 0x1d4634, weapon: "spear", weaponLength: 2.0, parts: ["hood", "cloak"], // capsule fallback
-    model: "Rogue_Hooded", scale: 0.95, headScale: 0.72, show: ["Rogue_Cape"],
-    spear: { length: 2.7, back: 1.0 },
+    build: [0.94, 1.05], trim: 0x6b5233, accent: 0x1d4634, weapon: "spear", weaponLength: 2.2,
+    parts: ["hood", "cloak"],
     moves: {
-      poke: "2H_Melee_Attack_Stab", poke2: "2H_Melee_Attack_Stab", tailsweep: "2H_Melee_Attack_Slice",
-      arc: "2H_Melee_Attack_Slice", footstab: "2H_Melee_Attack_Stab", vault: "Unarmed_Melee_Attack_Kick",
-      lunge: "2H_Melee_Attack_Stab", retreat: "2H_Melee_Attack_Stab", trip: "2H_Melee_Attack_Slice",
-      wakeup: "2H_Melee_Attack_Stab",
+      poke: "Punch_Cross", poke2: "Punch_Cross", tailsweep: "Sword_Attack",
+      arc: "Sword_Attack", footstab: "Punch_Cross", vault: "Zombie_Scratch",
+      lunge: "Punch_Cross", retreat: "Punch_Cross", trip: "Melee_Hook",
+      wakeup: "Punch_Cross",
     },
   },
+
   hp: 100,
   walkForward: 2.0,
   walkBack: 2.4,

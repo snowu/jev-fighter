@@ -159,10 +159,11 @@ Next:
 - **More moves**: down + button, and more strings per directional starter (toward ~12 moves each).
 - **More signatures** for new characters, e.g. stances, projectiles, a meter-based super, or
   wall interactions.
-- **Models**: KayKit (CC0) rigged models with a PS1 pass are in. Next steps:
-  - per-character animation sets (all three share one rig and clip library today)
-  - dedicated low attacks instead of an additive squat layer
-  - less chibi proportions
+- **Models**: Quaternius CC0 mannequin and animations with a PS1 pass are in. Next steps:
+  - swap the mannequin for [Universal Base Characters](https://quaternius.itch.io/universal-base-characters)
+    (same rig, real faces, hair and outfits; free, but a manual itch.io download)
+  - more attack clips per character (UAL Pro/Source are paid; Mixamo needs an Adobe login)
+  - two-handed grips (IK the off hand onto the weapon)
   - a real arena
 - **Jev experiments**: per-round "game plan" questions, confidence-gated hesitation and
   feints, and a temperature slider in the menu.

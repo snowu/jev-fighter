@@ -70,7 +70,7 @@ export class Renderer {
     for (const f of this.fighters) { this.scene.remove(f.group); this.scene.remove(f.hitbox); f.model?.mixer.stopAllAction(); }
     const mirror = world.fighters[0].char.id === world.fighters[1].char.id;
     this.fighters = world.fighters.map((f, i) => {
-      if (this.models && f.char.look?.model) {
+      if (this.models && f.char.look?.weapon) {
         try { return this.buildModelFighter(f.char, mirror && i === 1); } catch (err) { console.warn("model failed, using capsule", err); }
       }
       return this.buildFighter(f.char);
@@ -252,7 +252,7 @@ export class Renderer {
   }
 
   spark(pos, color, size) {
-    const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(size, 0), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 }));
+    const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(size * 0.6, 0), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 }));
     mesh.position.copy(pos);
     this.scene.add(mesh);
     this.sparks.push({ mesh, life: 0 });
@@ -266,7 +266,7 @@ export class Renderer {
     this.updateCamera(world);
     for (const s of this.sparks) {
       s.life++;
-      s.mesh.scale.setScalar(1 + s.life * 0.25);
+      s.mesh.scale.setScalar(1 + s.life * 0.12);
       s.mesh.rotation.x += 0.3;
       s.mesh.material.opacity = Math.max(0, 0.95 - s.life / 10);
     }
@@ -301,8 +301,8 @@ export class Renderer {
       case "grabbed": body = 0x3a1460; break;
     }
     v.model.setEmissive(body, weapon);
+    v.model.tilt = f.state === "juggle" ? 0.6 : 0; // tipped back while airborne (model faces -z)
     v.model.update(f, this.dt ?? 1 / 60);
-    v.model.root.rotation.x = f.state === "juggle" ? -0.6 : 0; // tipped back while airborne (model space: x is sideways)
     v.group.position.set(f.x, y, f.z);
     v.group.rotation.y = -f.facing;
     v.hitbox.visible = false;

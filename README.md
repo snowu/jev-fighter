@@ -64,15 +64,17 @@ built from the move data, so there are no AI code changes.
 
 ## Look
 
-Characters are rigged low-poly models from [KayKit Adventurers](https://kaylousberg.itch.io/kaykit-adventurers)
-by Kay Lousberg (CC0, in `public/assets/kaykit/`). Kara is the Barbarian, Sen is the Knight
-without a helmet, and Tove is the Hooded Rogue with a spear built in code. The game renders with
-a PS1-style pass: 240p internal resolution, vertex snapping, 15-bit colour with dithering. `P`
-toggles it.
+Fighters use Quaternius's female mannequin and Universal Animation Library 1 + 2 (all CC0,
+in `public/assets/ual/`). The fighters share one body. Each gets its own build, colours, weapon
+(axe, katana or spear) and a few low-poly accessories (horned helm, topknot, hood and cloak),
+built in `public/game/models.js` and parented to bones. UAL1's clips are pre-converted to JSON
+from its Unreal FBX (`tools/convert-ual1.mjs`), because its glTF export uses a different rig.
+The game renders with a PS1-style pass: 240p internal resolution, vertex snapping, 15-bit colour
+with dithering. `P` toggles it.
 
 Animations follow the sim, not the other way round. Each attack clip is time-warped so its
 moment of impact lands on the move's first active frame, which makes startup look exactly as
-long as it is. Clip choices live in each roster file's `look.moves`, and impact times in
-`public/game/models.js`. If models fail to load, the old capsules come back.
+long as it is. Clip choices live in each roster file's `look.moves`, and measured impact times
+in `models.js`. If models fail to load, the old capsules come back.
 
 See [DESIGN.md](DESIGN.md) for how the AI uses Jev.
