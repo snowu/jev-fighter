@@ -1,0 +1,12 @@
+{
+  "name": "jev-fighter",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=$HOME/.config/typesafe/env server.mjs",
+    "test": "node --test tools/*.test.mjs",
+    "sim": "node tools/sim.mjs",
+    "sim:jev": "node --env-file=$HOME/.config/typesafe/env tools/sim.mjs --jev kara:sen --matches 1",
+    "probe": "node --env-file=$HOME/.config/typesafe/env probe.mjs"
+  }
+}
