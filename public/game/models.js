@@ -4,13 +4,14 @@
 // (both CC0, same humanoid rig; UAL1 clips are pre-converted to JSON). Weapons and accessories are low-poly shapes built here and
 // parented to bones, so each fighter gets its own silhouette from one shared body.
 //
-// The sim is the truth; this only decides which clip to show and *where in the clip* we are.
-// Attack clips are time-warped so the swing's impact lands on the move's first active frame:
-// startup looks exactly as long as it is, so moves can be read and reacted to.
+// The sim is the truth. Strikes are posed procedurally (swing.js) so the weapon tip passes through
+// the actual hit point on the active frames; everything else (stance, movement, hit reactions,
+// knockdowns, throws) plays a clip at the time the sim's state implies.
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { isCrouching } from "../engine/sim/world.js";
+import { SwingRig, swingPhase } from "./swing.js";
 import { THROW_FRAMES, KNOCKDOWN_FRAMES } from "../engine/sim/constants.js";
 
 const BASE = "./assets/";
@@ -21,12 +22,8 @@ const FADE_FRAMES = 4; // cross-fade between clips (render frames)
 const ACTIVE_SPAN = 0.1; // seconds of clip shown across the active frames, centred on impact
 const LOWER_BODY = /^(pelvis|thigh|calf|foot|ball)/;
 
-// Moment of impact per clip (seconds): when the weapon tip is furthest toward the opponent,
-// measured by sampling each clip, then checked by eye.
-export const IMPACT = {
-  Sword_Regular_A: 0.12, Sword_Attack: 0.4, TreeChopping_Loop: 0.93, Zombie_Scratch: 0.5,
-  Melee_Hook: 0.19, Shield_Dash_RM: 0.57, Sword_Dash_RM: 0.6, Punch_Cross: 0.33,
-};
+// Moment of impact (seconds) for the few clip-driven attacks (throws); strikes are procedural (swing.js).
+export const IMPACT = { Melee_Hook: 0.19 };
 
 // Weapon grips (hand-bone rotations mapping the weapon's +y onto a hand axis). The two libraries
 // pose the hand differently, so the grip follows the clip: UAL2 sword clips swing the blade along
@@ -128,13 +125,15 @@ function buildWeapon(kind, length) {
   } else if (kind === "katana") {
     add(new THREE.CylinderGeometry(0.018, 0.018, 0.26, 6), dark, 0.05); // wrapped grip
     add(new THREE.CylinderGeometry(0.06, 0.06, 0.015, 10), dark, 0.19); // tsuba
-    metal.push(add(new THREE.BoxGeometry(0.035, length - 0.2, 0.012), steel, 0.2 + (length - 0.2) / 2));
+    metal.push(add(new THREE.BoxGeometry(0.055, length - 0.2, 0.018), steel, 0.2 + (length - 0.2) / 2));
   } else if (kind === "spear") {
     add(new THREE.CylinderGeometry(0.022, 0.022, length, 6), wood, length / 2 - 0.7);
     metal.push(add(new THREE.ConeGeometry(0.045, 0.3, 6), steel, length - 0.7 + 0.15));
     add(new THREE.ConeGeometry(0.05, 0.12, 5), mat(0xb23a2a), length - 0.72, [Math.PI, 0, 0]);
   }
   g.userData.metal = [...new Set(metal.map((m) => m.material))];
+  // Distance from the grip to the part that hits (axe head, blade tip, spearhead).
+  g.userData.tip = { axe: length - 0.42, katana: length, spear: length - 0.7 + 0.3 }[kind] ?? length;
   return g;
 }
 
@@ -214,16 +213,16 @@ export class FighterModel {
     });
     this.bodyMats.push(...buildAccessories(this.root, this.pivot, look.parts ?? [], { accent: look.accent ?? 0x333333 }));
 
-    const hand = this.root.getObjectByName("hand_r");
+    // The weapon lives in the fighter's frame (not on the hand) so attacks can place its tip exactly;
+    // outside attacks it follows the hand with a grip that suits the current clip.
+    this.hand = this.root.getObjectByName("hand_r");
     this.weapon = buildWeapon(look.weapon, look.weaponLength ?? 1);
-    if (hand) {
-      // Undo the body build scale so weapons keep their real size (reach must stay honest).
-      this.weapon.scale.set(1 / w, 1 / h, 1 / w);
-      this.grips = Object.fromEntries(Object.entries(GRIPS).map(([k, e]) => [k, new THREE.Quaternion().setFromEuler(new THREE.Euler(...e))]));
-      this.weapon.quaternion.copy(this.grips.rest);
-      hand.add(this.weapon);
-    }
+    this.weaponTip = this.weapon.userData.tip;
+    this.grips = Object.fromEntries(Object.entries(GRIPS).map(([k, e]) => [k, new THREE.Quaternion().setFromEuler(new THREE.Euler(...e))]));
+    this.gripQ = this.grips.rest.clone();
     this.weaponMats = this.weapon.userData.metal;
+    this.holder.updateMatrixWorld(true);
+    this.rig = new SwingRig(this.root);
 
     this.mixer = new THREE.AnimationMixer(this.root);
     this.actions = new Map();
@@ -272,8 +271,11 @@ export class FighterModel {
       case "attack": {
         const m = f.move;
         if (m.parry) return at(S.parry, 0.45);
-        const name = this.look.moves?.[m.id] ?? "Sword_Regular_A";
-        return { name, time: this.attackTime(name, m, f.frame), crouch: m.level === "low" ? 0.8 : 0 };
+        const swing = this.look.swings?.[m.id];
+        // Procedural swings stand on the idle (or crouch) stance; the rig poses the upper body.
+        if (swing) return { ...loop(S.idle), crouch: m.level === "low" ? 0.85 : 0, swing };
+        const name = this.look.moves?.[m.id] ?? "Melee_Hook";
+        return { name, time: this.attackTime(name, m, f.frame) };
       }
       case "idle":
         if (isCrouching(f)) return loop(S.crouch);
@@ -315,7 +317,7 @@ export class FighterModel {
     return Math.min(T * 0.999, a1 + (T - a1) * ((frame - m.startup - m.active) / m.recovery));
   }
 
-  update(f, dt) {
+  update(f, dt, target = null) {
     this.clock += dt;
     const want = this.choose(f);
     if (!this.cur || want.name !== this.cur.name) {
@@ -337,8 +339,39 @@ export class FighterModel {
       this.crouchAction.setEffectiveWeight(this.crouchWeight);
     }
     this.pivot.rotation.set(this.tilt, want.yaw ?? 0, 0);
-    const clip = this.assets.clips.get(this.cur.name);
-    if (this.grips && clip) this.weapon.quaternion.slerp(this.grips[gripFor(clip)], 0.35);
+    this.holder.position.x = 0;
+    this.rig.restore();
     this.mixer.update(0);
+    this.placeWeapon(f, want, target);
+  }
+
+  /** Swing pose (attacks) blended with the hand-held rest pose. Needs the group's transform up to date. */
+  placeWeapon(f, want, target) {
+    const frame = this.holder.parent;
+    if (!frame || !this.hand) return;
+    if (this.weapon.parent !== frame) frame.add(this.weapon);
+    frame.updateMatrixWorld(true);
+
+    // Rest: follow the hand with the grip that suits the current clip.
+    const clip = this.assets.clips.get(this.cur.name);
+    if (clip) this.gripQ.slerp(this.grips[gripFor(clip)], 0.35);
+    const frameQ = frame.getWorldQuaternion(new THREE.Quaternion()).invert();
+    let swing = null;
+    if (want.swing && f.state === "attack") {
+      swing = this.rig.apply({
+        frame, holder: this.holder, root: this.root, shape: want.swing, m: f.move, target,
+        weaponTip: this.weaponTip, twoHanded: this.look.twoHanded ?? true, phase: swingPhase(f.move, f.frame),
+      });
+    }
+    const restPos = frame.worldToLocal(this.hand.getWorldPosition(new THREE.Vector3()));
+    const restQ = frameQ.multiply(this.hand.getWorldQuaternion(new THREE.Quaternion())).multiply(this.gripQ);
+    if (swing) {
+      this.weapon.position.copy(restPos).lerp(swing.position, swing.weight);
+      this.weapon.quaternion.copy(restQ).slerp(swing.quaternion, swing.weight);
+      this.lastTip = swing.tip;
+    } else {
+      this.weapon.position.copy(restPos);
+      this.weapon.quaternion.copy(restQ);
+    }
   }
 }

@@ -72,9 +72,14 @@ from its Unreal FBX (`tools/convert-ual1.mjs`), because its glTF export uses a d
 The game renders with a PS1-style pass: 240p internal resolution, vertex snapping, 15-bit colour
 with dithering. `P` toggles it.
 
-Animations follow the sim, not the other way round. Each attack clip is time-warped so its
-moment of impact lands on the move's first active frame, which makes startup look exactly as
-long as it is. Clip choices live in each roster file's `look.moves`, and measured impact times
-in `models.js`. If models fail to load, the old capsules come back.
+Attacks are animated from the sim's own data, not from mocap. Each move has a swing shape
+(thrust, slash, backslash, chop, rising, sweep or spin, set in the roster's `look.swings`).
+The weapon tip follows a path that passes through the real hit point during the active frames:
+the move's reach, or the opponent's body if they're closer, at face, chest or shin height.
+Two-bone IK puts both hands on the weapon, and the torso twists and leans while the body lunges
+in when the target is out of arm's reach (`public/game/swing.js`). The wind-up takes the
+startup, the strike crosses the target inside the active window, and the follow-through and
+return fill the recovery. Stance, movement, hit reactions, knockdowns and throws still use
+clips. If models fail to load, the old capsules come back.
 
 See [DESIGN.md](DESIGN.md) for how the AI uses Jev.

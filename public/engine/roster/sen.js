@@ -11,12 +11,11 @@ export default {
   look: {
     build: [0.96, 0.98], trim: 0xd8d0bc, accent: 0x8a1f2b, weapon: "katana", weaponLength: 1.0,
     parts: ["topknot", "sash"],
-    moves: {
-      draw: "Sword_Regular_A", draw2: "Zombie_Scratch", crescent: "Sword_Attack",
-      flick: "Sword_Regular_A", rising: "Zombie_Scratch", ankle: "Sword_Attack",
-      heaven: "TreeChopping_Loop", iai: "Sword_Dash_RM", riposte: "Sword_Regular_A",
-      sheathe: "Sword_Regular_A", wristlock: "Melee_Hook", wakeup: "Sword_Regular_A",
+    swings: {
+      draw: "slash", draw2: "backslash", crescent: "chop", flick: "sweep", rising: "rising", ankle: "sweep",
+      heaven: "rising", iai: "thrust", riposte: "slash", sheathe: "backslash", wakeup: "slash",
     },
+    moves: { wristlock: "Melee_Hook" }, // clip-driven moves (throws)
   },
 
   hp: 95,

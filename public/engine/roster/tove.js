@@ -11,12 +11,11 @@ export default {
   look: {
     build: [0.94, 1.05], trim: 0x6b5233, accent: 0x1d4634, weapon: "spear", weaponLength: 2.2,
     parts: ["hood", "cloak"],
-    moves: {
-      poke: "Punch_Cross", poke2: "Punch_Cross", tailsweep: "Sword_Attack",
-      arc: "Sword_Attack", footstab: "Punch_Cross", vault: "Zombie_Scratch",
-      lunge: "Punch_Cross", retreat: "Punch_Cross", trip: "Melee_Hook",
-      wakeup: "Punch_Cross",
+    swings: {
+      poke: "thrust", poke2: "thrust", tailsweep: "sweep", arc: "sweep", footstab: "thrust", vault: "rising",
+      lunge: "thrust", retreat: "thrust", wakeup: "thrust",
     },
+    moves: { trip: "Melee_Hook" }, // clip-driven moves (throws)
   },
 
   hp: 100,

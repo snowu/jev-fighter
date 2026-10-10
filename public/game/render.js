@@ -262,7 +262,7 @@ export class Renderer {
     const now = performance.now();
     this.dt = Math.min(0.1, (now - this.lastUpdate) / 1000);
     this.lastUpdate = now;
-    world.fighters.forEach((f, i) => this.pose(f, this.fighters[i]));
+    world.fighters.forEach((f, i) => this.pose(f, this.fighters[i], world.fighters[1 - i]));
     this.updateCamera(world);
     for (const s of this.sparks) {
       s.life++;
@@ -276,7 +276,7 @@ export class Renderer {
   }
 
   /** Rigged model: the clip/time comes from the sim state; flashes and glows go on the materials. */
-  poseModel(f, v) {
+  poseModel(f, v, opp) {
     let y = 0;
     let body = enraged(f) ? (Math.floor(f.frame / 12) % 2 ? 0x3a0604 : 0x1c0302) : 0x000000;
     let weapon = 0x000000;
@@ -302,15 +302,17 @@ export class Renderer {
     }
     v.model.setEmissive(body, weapon);
     v.model.tilt = f.state === "juggle" ? 0.6 : 0; // tipped back while airborne (model faces -z)
-    v.model.update(f, this.dt ?? 1 / 60);
-    v.group.position.set(f.x, y, f.z);
+    v.group.position.set(f.x, y, f.z); // before the model update: attack poses are solved in this frame
     v.group.rotation.y = -f.facing;
+    // Aim swings at the opponent as they actually are: how far away, and whether they're ducking.
+    const target = opp && { dist: Math.hypot(opp.x - f.x, opp.z - f.z) - BODY_RADIUS, crouching: isCrouching(opp) };
+    v.model.update(f, this.dt ?? 1 / 60, target);
     v.hitbox.visible = false;
     if (f.state === "attack" && f.move.level !== "throw") this.poseHitbox(f, v, phase);
   }
 
-  pose(f, v) {
-    if (v.model) return this.poseModel(f, v);
+  pose(f, v, opp) {
+    if (v.model) return this.poseModel(f, v, opp);
     let y = 0;
     v.pose.rotation.set(0, 0, 0);
     v.pose.position.set(0, 0, 0);

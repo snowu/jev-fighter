@@ -13,12 +13,12 @@ export default {
   look: {
     build: [1.12, 1.04], trim: 0x3b2618, accent: 0x4a4f57, weapon: "axe", weaponLength: 1.25,
     parts: ["horned_helm", "fur_mantle"],
-    moves: {
-      jab: "Sword_Regular_A", jab2: "Melee_Hook", finisher: "Zombie_Scratch",
-      overhead: "TreeChopping_Loop", shin: "Sword_Attack", lift: "Zombie_Scratch",
-      whirlwind: "Sword_Attack", bullrush: "Shield_Dash_RM", splitter: "TreeChopping_Loop",
-      headbutt: "Melee_Hook", wakeup: "Sword_Regular_A",
+    // Procedural swing shape per move (public/game/swing.js); moves without one (throws) use clips.
+    swings: {
+      jab: "thrust", jab2: "thrust", finisher: "slash", overhead: "chop", shin: "sweep", lift: "rising",
+      whirlwind: "spin", bullrush: "thrust", splitter: "chop", wakeup: "slash",
     },
+    moves: { headbutt: "Melee_Hook" }, // clip-driven moves (throws)
   },
 
   hp: 110,
