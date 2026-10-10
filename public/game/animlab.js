@@ -225,8 +225,7 @@ export function checkPose(poser, kase, f) {
       const along = Math.min(g.axis.angleTo(weaponAxis), g.axis.angleTo(weaponAxis.clone().negate()));
       if (along > 0.5) fail("grip", `${side} fist ${(along * 57.3).toFixed(0)}° across the shaft`);
       const { bend, twist } = rig.wristAngles(arm);
-      // The off (lead) hand of a spear holds it diagonally in a looser grip: allow it more wrist angle.
-      if (bend > (side === "left" ? 1.32 : 1.26)) fail("wrist", `${side} wrist bent ${(bend * 57.3).toFixed(0)}°`);
+      if (bend > 1.26) fail("wrist", `${side} wrist bent ${(bend * 57.3).toFixed(0)}°`);
       if (twist > 0.6) fail("wrist", `${side} wrist twisted ${(twist * 57.3).toFixed(0)}°`);
     }
   }
