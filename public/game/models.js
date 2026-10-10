@@ -12,7 +12,8 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { isCrouching } from "../engine/sim/world.js";
 import { SwingRig, swingPhase, tuneSwing } from "./swing.js";
-import { THROW_FRAMES, KNOCKDOWN_FRAMES } from "../engine/sim/constants.js";
+import { assetQuery } from "./version.js";
+import { THROW_FRAMES, KNOCKDOWN_FRAMES, JUGGLE_FRAMES } from "../engine/sim/constants.js";
 
 const BASE = "./assets/";
 const BODY = "ual/Mannequin_F";
@@ -20,7 +21,14 @@ const ANIM_GLB = "ual/UAL2"; // UAL2, same bone names as the body
 const ANIM_JSON = "ual/UAL1_clips.json"; // UAL1 clips converted from its Unreal FBX (tools/convert-ual1.mjs)
 const FADE_FRAMES = 4; // cross-fade between clips (render frames)
 const ACTIVE_SPAN = 0.1; // seconds of clip shown across the active frames, centred on impact
-const LOWER_BODY = /^(pelvis|thigh|calf|foot|ball)/;
+const LOWER_BODY = /^(pelvis|thigh|calf)/; // crouch layer: feet keep the stance's flat footing
+/** Height of a juggled fighter above the floor (shared by the renderer and the animation lab). */
+export function airborneHeight(f) {
+  if (f.state !== "juggle" || !f.duration) return 0;
+  const t = Math.min(1, f.frame / f.duration);
+  return 4 * 1.35 * (f.duration / JUGGLE_FRAMES) * t * (1 - t) + 0.05;
+}
+export const GROUNDED_LOW = new Set(["knockdown", "ko", "roll", "juggle", "grabbed"]); // states whose clips can sink into the floor
 
 // Moment of impact (seconds) for the few clip-driven attacks (throws); strikes are procedural (swing.js).
 export const IMPACT = { Melee_Hook: 0.19 };
@@ -41,17 +49,16 @@ const STATE_CLIPS = {
   roll: "Roll", parry: "Sword_Block",
 };
 
-const gltfs = new Map();
-const load = (path) => {
-  if (!gltfs.has(path)) gltfs.set(path, new GLTFLoader().loadAsync(`${BASE}${path}.glb`));
-  return gltfs.get(path);
+// Asset access is injectable so the same code runs in the browser (fetch) and in Node checks
+// (read from disk); see tools/anim.test.mjs.
+const browserAssets = {
+  glb: (path) => new GLTFLoader().loadAsync(`${BASE}${path}.glb${assetQuery}`),
+  json: (path) => fetch(`${BASE}${path}${assetQuery}`).then((r) => r.json()),
 };
 
 /** Load the shared body and animation libraries once. Resolves to the asset bundle. */
-export async function preloadModels() {
-  const [body, ual2, ual1] = await Promise.all([
-    load(BODY), load(ANIM_GLB), fetch(`${BASE}${ANIM_JSON}`).then((r) => r.json()),
-  ]);
+export async function preloadModels(assets = browserAssets) {
+  const [body, ual2, ual1] = await Promise.all([assets.glb(BODY), assets.glb(ANIM_GLB), assets.json(ANIM_JSON)]);
   const clips = new Map();
   const fromUal1 = ual1.map((j) => Object.assign(turnAround(THREE.AnimationClip.parse(j)), { userData: { src: "ual1" } }));
   for (const c of [...fromUal1, ...ual2.animations]) {
@@ -223,6 +230,9 @@ export class FighterModel {
     this.weaponMats = this.weapon.userData.metal;
     this.holder.updateMatrixWorld(true);
     this.rig = new SwingRig(this.root);
+    this.floorBones = ["Head", "pelvis", "spine_03", "hand_l", "hand_r", "foot_l", "foot_r", "ball_l", "ball_r", "lowerarm_l", "lowerarm_r", "calf_l", "calf_r"]
+      .map((n) => this.root.getObjectByName(n)).filter(Boolean);
+    this.toes = ["l", "r"].map((s) => [this.root.getObjectByName(`foot_${s}`), this.root.getObjectByName(`ball_${s}`)]);
 
     this.mixer = new THREE.AnimationMixer(this.root);
     this.actions = new Map();
@@ -297,7 +307,7 @@ export class FighterModel {
       case "staggered": return at(S.guardbreak, 0.2 + 0.6 * p);
       case "grabbed": return at(S.hitHeavy, 0.2 + 0.6 * f.frame / THROW_FRAMES);
       case "grabbing": return at(S.throwing, f.frame / THROW_FRAMES);
-      case "techstun": return at(S.knockback, 0.1 + 0.3 * p);
+      case "techstun": return { ...loop(S.idle), ...hop(p, 0.03), lean: 0.2 * Math.sin(Math.PI * p) }; // shoved apart, stays on its feet
       case "taunt": return loop(S.taunt);
       // No dodge clips in the library: dashes are a quick hop in stance (compress, low hop, land)
       // leaning the way the sim moves the fighter.
@@ -347,7 +357,41 @@ export class FighterModel {
     this.holder.position.set(0, want.lift ?? 0, 0);
     this.rig.restore();
     this.mixer.update(0);
+    if (GROUNDED_LOW.has(f.state)) this.keepAboveFloor();
     this.placeWeapon(f, want, target);
+    if (!GROUNDED_LOW.has(f.state)) this.liftToes();
+  }
+
+  /** Bent knees (crouch layer, blends) can tip the toes into the floor: pitch the foot up instead. */
+  liftToes() {
+    const frame = this.holder.parent;
+    if (!frame) return;
+    frame.updateMatrixWorld(true);
+    const up = new THREE.Vector3(0, 1, 0);
+    for (const [foot, ball] of this.toes) {
+      const f = frame.worldToLocal(foot.getWorldPosition(new THREE.Vector3()));
+      const b = frame.worldToLocal(ball.getWorldPosition(new THREE.Vector3()));
+      const floorY = -frame.position.y; // the fighter frame may be lifted (juggles)
+      if (b.y >= floorY + 0.01) continue;
+      const d = b.clone().sub(f);
+      const angle = Math.asin(Math.min(1, (floorY + 0.01 - b.y) / d.length()));
+      const axisLocal = d.clone().cross(up).normalize();
+      const axisWorld = frame.localToWorld(axisLocal.clone()).sub(frame.localToWorld(new THREE.Vector3())).normalize();
+      if (!this.rig.saved.has(foot)) this.rig.saved.set(foot, foot.quaternion.clone()); // restored before the next mixer update
+      const wq = foot.getWorldQuaternion(new THREE.Quaternion()).premultiply(new THREE.Quaternion().setFromAxisAngle(axisWorld, angle));
+      foot.quaternion.copy(foot.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(wq));
+      foot.updateMatrixWorld(true);
+    }
+  }
+
+  /** Lying, rolling and airborne clips can dip below the floor: lift the body so nothing does. */
+  keepAboveFloor() {
+    const frame = this.holder.parent;
+    if (!frame) return;
+    frame.updateMatrixWorld(true);
+    let lowest = Infinity;
+    for (const b of this.floorBones) lowest = Math.min(lowest, frame.worldToLocal(b.getWorldPosition(new THREE.Vector3())).y);
+    if (lowest < 0.03) { this.holder.position.y += 0.03 - lowest; this.holder.updateMatrixWorld(true); }
   }
 
   tuning(m, spec) {

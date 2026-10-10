@@ -15,7 +15,7 @@
 // opponent), +y up, +z the fighter's right side.
 import * as THREE from "three";
 
-const HEIGHT = { high: 1.42, mid: 1.1, low: 0.38 }; // face, chest, shins
+export const HEIGHT = { high: 1.42, mid: 1.1, low: 0.38 }; // face, chest, shins
 
 // Per-shape defaults. windup: how far back the weapon is drawn (1 = shape's natural wind-up);
 // step: lead-foot step at the strike (m); drop: weight drop at impact (m); hips: hip/torso coil
@@ -123,6 +123,8 @@ export function swingPose(shape, P, sh, s, span = 1.5) {
       tip.copy(P);
       dir.set(1, 0, 0);
   }
+  // The weapon never goes through the floor: rising wind-ups and chop follow-throughs stop on it.
+  if (tip.y < 0.06) tip.y = 0.06;
   return { tip, dir };
 }
 
@@ -233,7 +235,9 @@ export class SwingRig {
     this.remember(bones);
 
     // Weight: back onto the rear foot while coiling, forward with the step, down on impact.
-    holder.position.set(w * (tune.step * 0.55 * stepK - 0.06 * windK), -w * tune.drop * bell, 0);
+    // Low attacks sink further so the hands can reach a shin-height grip.
+    const low = m.level === "low" ? 1 : 0;
+    holder.position.set(w * (tune.step * 0.55 * stepK - 0.06 * windK), -w * (tune.drop * bell + 0.12 * low), 0);
     holder.updateMatrixWorld(true);
 
     // Hips and torso coil towards the weapon side in the wind-up and unwind through the hit.
@@ -243,7 +247,7 @@ export class SwingRig {
     const up = axis(0, 1, 0), side = axis(0, 0, 1);
     this.turn(this.pelvis, up, coil * 0.55);
     this.turn(this.spine, up, coil * 0.45);
-    this.turn(this.waist, side, -(tune.lean * bell - (shape === "chop" ? 0.12 : 0.05) * windK)); // rear back, then lean in
+    this.turn(this.waist, side, -(tune.lean * bell + 0.18 * low - (shape === "chop" ? 0.12 : 0.05) * windK)); // rear back, then lean in
 
     // Weapon path for this frame, and where the weapon hand has to be.
     const shoulderG = frame.worldToLocal(this.right.upper.getWorldPosition(v()));
@@ -260,6 +264,10 @@ export class SwingRig {
     const shortfall = Math.min(0.6, Math.max(0, hand.distanceTo(shoulderG) - reach)) * w;
     if (shortfall > 0) { holder.position.x += shortfall; holder.updateMatrixWorld(true); }
     const lunge = holder.position.x;
+    // Still out of reach (deep low sweeps): slide the hand up the shaft rather than let go.
+    const shoulderNow = frame.worldToLocal(this.right.upper.getWorldPosition(v()));
+    const excess = hand.distanceTo(shoulderNow) - reach;
+    if (excess > 0) { len = Math.max(0.2, len - Math.min(0.45, excess)); hand = v().copy(tip).addScaledVector(dir, -len); }
 
     // Legs: rear foot stays planted where the stance put it; the lead foot steps (in an arc) by the
     // step plus any extra lunge, so the hips stay between the feet. Feet stay flat.
@@ -272,8 +280,12 @@ export class SwingRig {
       ft.leg.hand.updateMatrixWorld(true);
     });
 
-    // Arms: weapon hand onto the grip, off hand further down the handle for two-handed weapons.
+    // Arms: weapon hand onto the grip. If the arm can't quite get there, the weapon follows the
+    // hand (same direction) rather than floating free; then the off hand takes the handle below.
     solveArm(this.right, toWorld(hand), axis(-0.3, -1, 0.8 * k));
+    const reached = frame.worldToLocal(this.right.hand.getWorldPosition(v()));
+    const slip = v().subVectors(reached, hand);
+    if (slip.length() > 0.02) { tip.add(slip); hand.copy(reached); }
     if (twoHanded) solveArm(this.left, toWorld(v().copy(hand).addScaledVector(dir, -0.3)), axis(-0.3, -1, -0.8 * k));
     this.blend(bones, w);
     root.updateMatrixWorld(true);
@@ -288,6 +300,6 @@ export class SwingRig {
       const roll = Math.atan2(v().crossVectors(edge, wantEdge).dot(dir), edge.dot(wantEdge));
       q.premultiply(new THREE.Quaternion().setFromAxisAngle(dir, roll));
     }
-    return { position: v().copy(tip).addScaledVector(dir, -weaponTip), quaternion: q, weight: w, tip, lunge };
+    return { position: v().copy(hand).addScaledVector(dir, -(weaponTip - len)), quaternion: q, weight: w, tip, lunge };
   }
 }

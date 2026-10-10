@@ -12,6 +12,7 @@ export default {
     build: [0.94, 1.05], trim: 0x6b5233, accent: 0x1d4634, weapon: "spear", weaponLength: 2.2,
     parts: ["hood", "cloak"],
     swings: {
+      trip: { shape: "thrust", windup: 0.5, step: 0.2, hips: 0.2 }, // grab: a quick reach in
       poke: { shape: "thrust", windup: 0.85, step: 0.1, hips: 0.2 }, // keep-away poke: barely commits
       poke2: { shape: "thrust", windup: 0.8, step: 0.12, hips: 0.2 },
       tailsweep: { shape: "sweep", windup: 1.1, step: 0.15 },
@@ -22,7 +23,6 @@ export default {
       retreat: { shape: "thrust", windup: 0.6, step: -0.35 },
       wakeup: "thrust",
     },
-    moves: { trip: "Melee_Hook" }, // clip-driven moves (throws)
   },
 
   hp: 100,

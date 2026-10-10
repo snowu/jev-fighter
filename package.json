@@ -8,5 +8,8 @@
     "sim": "node tools/sim.mjs",
     "sim:jev": "node --env-file=$HOME/.config/typesafe/env tools/sim.mjs --jev kara:sen --matches 1",
     "probe": "node --env-file=$HOME/.config/typesafe/env probe.mjs"
+  },
+  "devDependencies": {
+    "three": "^0.169.0"
   }
 }

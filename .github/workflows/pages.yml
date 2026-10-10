@@ -1,4 +1,4 @@
-# Deploys the static game (public/) to GitHub Pages on every push to main.
+# Tests, builds (tools/build-pages.mjs) and deploys the static game to GitHub Pages on every push to main.
 # On Pages there is no server, so the Jev brain is unavailable and the game uses the local brain;
 # run `npm start` locally (with your TypeSafe key) to play against Jev.
 name: Deploy to Pages
@@ -21,9 +21,17 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      # Combat tests + animation checks: a broken pose never reaches the live site.
+      - run: npm test
+      # Cache-busting build: versioned module/asset URLs + never-cached version.json.
+      - run: node tools/build-pages.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: public
+          path: _site
       - id: deployment
         uses: actions/deploy-pages@v4

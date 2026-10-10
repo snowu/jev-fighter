@@ -1,7 +1,7 @@
 // 3D renderer: rigged models (or capsule fallbacks), readable states, hit sparks, hitbox
 // overlay, PS1-style presentation. It only reads the sim, so visuals never change combat or AI.
 import * as THREE from "three";
-import { FighterModel } from "./models.js";
+import { FighterModel, airborneHeight } from "./models.js";
 import { PS1Pass } from "./ps1.js";
 import { ARENA_RADIUS, BODY_RADIUS, JUGGLE_FRAMES, TIPPER } from "../engine/sim/constants.js";
 import { attackPhase, isCrouching, isGuarding, enraged } from "../engine/sim/world.js";
@@ -291,11 +291,9 @@ export class Renderer {
         break;
       case "hitstun": body = f.frame < 5 ? 0x606060 : 0x000000; break;
       case "blockstun": body = f.frame < 4 ? 0x18306a : 0x000000; break;
-      case "juggle": {
-        const t = Math.min(1, f.frame / f.duration);
-        y = 4 * 1.35 * (f.duration / JUGGLE_FRAMES) * t * (1 - t) + 0.05;
+      case "juggle":
+        y = airborneHeight(f);
         break;
-      }
       case "guardbreak": body = f.frame % 10 < 5 ? 0x5a2ccc : 0x1a0848; break;
       case "staggered": body = f.frame % 8 < 4 ? 0x1f6a7a : 0x0a2a33; break;
       case "grabbed": body = 0x3a1460; break;

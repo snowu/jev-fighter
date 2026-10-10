@@ -16,6 +16,21 @@ npm run sim      # headless AI-vs-AI matches with the local brain (add -- --equa
 npm run sim:jev  # one headless match with Jev driving Kara (uses the API)
 ```
 
+**Animation lab:** http://localhost:5173/lab.html (also on the Pages site at `/lab.html`).
+It shows contact sheets of every state and move for each fighter. Frames that fail a check are
+outlined in red, and clicking any frame opens it in a scrubbable 3D viewer. The same checks run
+in `npm test` (`tools/anim.test.mjs`):
+- upright and not folded
+- hips facing the opponent
+- feet on the floor and nothing below it
+- weapon in hand
+- the weapon tip on the hit point at the hit frame
+
+**Deploys:** every push to `main` runs the tests, then `tools/build-pages.mjs`, then publishes to
+Pages. The build adds `?v=<commit>` to every module and asset URL, and pages load through a
+never-cached `version.json`, so a deploy shows up immediately instead of after GitHub's
+10-minute cache.
+
 No build step and no dependencies. three.js loads from a pinned CDN URL. The API key stays
 on the server: the page talks to `/api/brain`, and `server.mjs` forwards that to TypeSafe.
 

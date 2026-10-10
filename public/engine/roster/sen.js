@@ -12,6 +12,7 @@ export default {
     build: [0.96, 0.98], trim: 0xd8d0bc, accent: 0x8a1f2b, weapon: "katana", weaponLength: 1.0,
     parts: ["topknot", "sash"],
     swings: {
+      wristlock: { shape: "thrust", windup: 0.5, step: 0.2, hips: 0.2 }, // grab: a quick reach in
       draw: { shape: "slash", windup: 0.55, step: 0.12, hips: 0.3 }, // quick draw: tight and fast
       draw2: { shape: "backslash", windup: 0.7, step: 0.15 },
       crescent: { shape: "chop", windup: 1.3, step: 0.3, drop: 0.12 },
@@ -24,7 +25,6 @@ export default {
       sheathe: { shape: "backslash", windup: 0.8, step: -0.3 },
       wakeup: "slash",
     },
-    moves: { wristlock: "Melee_Hook" }, // clip-driven moves (throws)
   },
 
   hp: 95,

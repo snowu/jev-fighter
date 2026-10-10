@@ -72,7 +72,7 @@ let game = null;
 const startBtn = $("start");
 startBtn.disabled = true;
 startBtn.textContent = "LOADING MODELS…";
-const modelsReady = preloadModels(Object.values(ROSTER))
+const modelsReady = preloadModels()
   .then((models) => { renderer.models = models; })
   .catch((err) => console.warn("models failed to load, using placeholder capsules", err))
   .finally(() => { startBtn.disabled = false; startBtn.textContent = "FIGHT"; });
