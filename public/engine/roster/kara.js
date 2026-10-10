@@ -8,6 +8,8 @@ export default {
     "Kara, a reckless axe berserker. Loves trading hits and hates backing off. Gets wilder and more reckless as she gets hurt. Rarely sidesteps.",
   signature:
     "Armor and rage: her heavy swings shrug off one high or mid hit and keep going (low attacks and throws stop them), and below a third of her health she hits much harder. Heavy and slow on her feet, falls quickly out of juggles.",
+  // Renderer-only: silhouette and weapon shape (the sim never reads this).
+  look: { build: [1.28, 0.98], accent: 0x3b2618, weapon: "axe", weaponLength: 1.25, parts: ["pauldrons", "horns", "belt"] },
   hp: 110,
   walkForward: 2.3,
   walkBack: 1.5,

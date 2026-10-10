@@ -1,10 +1,12 @@
 // Placeholder 3D renderer: capsules + weapons, readable states, hit sparks, hitbox overlay.
 // It only reads the sim; swapping in rigged models later doesn't touch combat or AI.
 import * as THREE from "three";
-import { ARENA_RADIUS, BODY_RADIUS, JUGGLE_FRAMES } from "../engine/sim/constants.js";
+import { ARENA_RADIUS, BODY_RADIUS, JUGGLE_FRAMES, TIPPER } from "../engine/sim/constants.js";
 import { attackPhase, isCrouching, isGuarding, enraged } from "../engine/sim/world.js";
 
-const LEVEL_ANGLE = { high: 0.4, mid: 0, low: -0.75, throw: -0.1 };
+const LEVEL_ANGLE = { high: 0.4, mid: 0, low: -0.5, throw: -0.1 };
+const PIVOT_X = 0.08; // hand position in front of the body's centre at rest
+const MAX_ARM = 0.45; // how far the arm can push the weapon forward; any reach beyond that is a lean/step
 const LEVEL_HEIGHT = { high: 1.5, mid: 1.1, low: 0.35, throw: 1.1 };
 const C = {
   weapon: 0xc8ced9, startup: 0xf2c14e, active: 0xff4545, recovery: 0x5d6575, throw: 0xc07bff,
@@ -59,40 +61,130 @@ export class Renderer {
 
   setup(world) {
     for (const f of this.fighters) { this.scene.remove(f.group); this.scene.remove(f.hitbox); }
-    this.fighters = world.fighters.map((f) => this.buildFighter(f.char.color));
+    this.fighters = world.fighters.map((f) => this.buildFighter(f.char));
   }
 
-  buildFighter(color) {
+  // Placeholder bodies: one capsule + head, scaled to a build, with a few accessory shapes and
+  // a weapon shaped after the character's weapon. Local axes: +x forward, +y up, z sideways.
+  buildFighter(char) {
+    const look = char.look ?? {};
+    const [w, h] = look.build ?? [1, 1];
+    const color = char.color;
     const group = new THREE.Group();
     const pose = new THREE.Group();
+    pose.scale.set(w, h, w);
     group.add(pose);
     const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(BODY_RADIUS * 0.95, 0.85, 4, 14), bodyMat);
-    body.position.y = 0.72;
-    body.castShadow = true;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.19, 16, 12), bodyMat);
-    head.position.y = 1.43;
-    head.castShadow = true;
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.06, 0.24), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-    visor.position.set(0.17, 1.46, 0);
+    const accentMat = new THREE.MeshStandardMaterial({ color: look.accent ?? 0x333333, roughness: 0.8 });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x15171c, roughness: 0.7 });
+    const mesh = (geo, mat, x, y, z) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      m.castShadow = true;
+      pose.add(m);
+      return m;
+    };
+    const body = mesh(new THREE.CapsuleGeometry(BODY_RADIUS * 0.95, 0.85, 4, 14), bodyMat, 0, 0.72, 0);
+    mesh(new THREE.SphereGeometry(0.19, 16, 12), bodyMat, 0, 1.43, 0);
+    mesh(new THREE.BoxGeometry(0.08, 0.06, 0.24), new THREE.MeshBasicMaterial({ color: 0xffffff }), 0.17, 1.46, 0);
+
+    for (const part of look.parts ?? []) {
+      switch (part) {
+        case "pauldrons":
+          for (const z of [-0.3, 0.3]) mesh(new THREE.SphereGeometry(0.17, 12, 10), accentMat, 0, 1.2, z).scale.set(1, 0.75, 1);
+          break;
+        case "horns":
+          for (const z of [-1, 1]) {
+            const horn = mesh(new THREE.ConeGeometry(0.05, 0.28, 8), new THREE.MeshStandardMaterial({ color: 0xe8dcc0, roughness: 0.5 }), 0, 1.6, 0.14 * z);
+            horn.rotation.x = 0.55 * z;
+          }
+          break;
+        case "belt":
+          mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.1, 18), accentMat, 0, 0.62, 0);
+          break;
+        case "topknot":
+          mesh(new THREE.SphereGeometry(0.085, 10, 8), darkMat, -0.12, 1.6, 0);
+          break;
+        case "sash": {
+          mesh(new THREE.CylinderGeometry(0.29, 0.29, 0.09, 18), accentMat, 0, 0.74, 0);
+          const tail = mesh(new THREE.BoxGeometry(0.04, 0.32, 0.09), accentMat, -0.27, 0.6, 0.12);
+          tail.rotation.x = 0.2;
+          break;
+        }
+        case "scabbard": {
+          const sc = mesh(new THREE.BoxGeometry(0.8, 0.05, 0.05), darkMat, -0.05, 0.68, -0.31);
+          sc.rotation.z = -0.45;
+          break;
+        }
+        case "hood":
+          mesh(new THREE.ConeGeometry(0.235, 0.38, 14), accentMat, -0.02, 1.58, 0);
+          break;
+        case "cloak": {
+          const cloak = mesh(new THREE.BoxGeometry(0.05, 1.05, 0.52), accentMat, -0.3, 0.82, 0);
+          cloak.rotation.z = -0.1;
+          break;
+        }
+      }
+    }
+
+    // Weapon: the main piece is scaled along x to the move's reach each frame; end pieces
+    // (axe head, spear tip) are repositioned to the end so they don't stretch.
     const pivot = new THREE.Group();
-    pivot.position.set(0.08, 1.12, 0);
+    pivot.position.set(PIVOT_X / w, 1.12, 0);
+    pivot.scale.set(1 / w, 1 / h, 1 / w); // reach is in world metres regardless of build
+    pose.add(pivot);
     const weaponMat = new THREE.MeshStandardMaterial({ color: C.weapon, roughness: 0.45, metalness: 0.1, emissive: 0x000000 });
-    const blade = new THREE.BoxGeometry(1, 0.07, 0.07);
+    const kind = look.weapon ?? "blade";
+    const length = look.weaponLength ?? 1.1; // fixed, real size: reach comes from arm and lean, not stretching
+    const armGeo = new THREE.BoxGeometry(1, 0.075, 0.075);
+    armGeo.translate(0.5, 0, 0);
+    const arm = new THREE.Mesh(armGeo, bodyMat);
+    arm.position.set(0, 1.12, 0);
+    pose.add(arm);
+    const [thick, depth] = { axe: [0.08, 0.08], katana: [0.045, 0.025], spear: [0.045, 0.045] }[kind] ?? [0.07, 0.07];
+    const blade = new THREE.BoxGeometry(1, thick, depth);
     blade.translate(0.5, 0, 0);
     const weapon = new THREE.Mesh(blade, weaponMat);
     weapon.castShadow = true;
     pivot.add(weapon);
-    pose.add(body, head, visor, pivot);
+    const ends = [];
+    const addEnd = (geo, mat, back, y = 0, rot = null) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.castShadow = true;
+      if (rot) m.rotation.set(...rot);
+      m.position.y = y;
+      pivot.add(m);
+      ends.push({ m, back });
+    };
+    const addFixed = (geo, mat, x, rot = null) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.x = x;
+      if (rot) m.rotation.set(...rot);
+      pivot.add(m);
+    };
+    if (kind === "axe") {
+      addEnd(new THREE.BoxGeometry(0.22, 0.44, 0.05), weaponMat, 0.13, 0.1); // broad head
+      addEnd(new THREE.BoxGeometry(0.1, 0.16, 0.06), weaponMat, 0.13, -0.18); // back spike
+    } else if (kind === "katana") {
+      addFixed(new THREE.CylinderGeometry(0.075, 0.075, 0.02, 16), darkMat, 0.2, [0, 0, Math.PI / 2]); // tsuba
+      addFixed(new THREE.BoxGeometry(0.2, 0.055, 0.045), darkMat, 0.09); // wrapped handle
+    } else if (kind === "spear") {
+      addEnd(new THREE.ConeGeometry(0.065, 0.34, 8), weaponMat, 0.17, 0, [0, 0, -Math.PI / 2]); // blade tip
+      addEnd(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshStandardMaterial({ color: 0xc23b2b }), 0.4, -0.05); // tassel
+    }
 
     const hitbox = new THREE.Group();
     const hbMat = new THREE.MeshBasicMaterial({ color: C.active, transparent: true, opacity: 0.3, depthWrite: false });
     const hbPlane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), hbMat);
     hbPlane.rotation.x = -Math.PI / 2;
-    hitbox.add(hbPlane);
+    const tipMat = new THREE.MeshBasicMaterial({ color: 0x59c98b, transparent: true, opacity: 0.35, depthWrite: false });
+    const tipPlane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), tipMat);
+    tipPlane.rotation.x = -Math.PI / 2;
+    tipPlane.position.y = 0.002;
+    hitbox.add(hbPlane, tipPlane);
     hitbox.visible = false;
     this.scene.add(group, hitbox);
-    return { group, pose, body, bodyMat, pivot, weapon, weaponMat, hitbox, hbPlane, hbMat, baseColor: new THREE.Color(color) };
+    return { group, pose, body, bodyMat, pivot, weapon, weaponMat, ends, arm, length, w, hitbox, hbPlane, hbMat, tipPlane, tipMat, baseColor: new THREE.Color(color) };
   }
 
   /** Converts "into the screen" (+1) / "toward the camera" (-1) into a fighter-relative sidestep direction. */
@@ -152,7 +244,8 @@ export class Renderer {
     v.pose.position.set(0, 0, 0);
     v.group.scale.set(1, isCrouching(f) ? 0.62 : 1, 1);
     v.pivot.rotation.set(0, 0, 0);
-    v.weapon.scale.x = 0.9;
+    v.pivot.position.x = PIVOT_X / v.w;
+    v.weapon.scale.x = v.length;
     v.weaponMat.color.setHex(C.weapon);
     v.weaponMat.emissive.setHex(0x000000);
     // Rage: a dull red glow under every state that doesn't set its own.
@@ -162,12 +255,10 @@ export class Renderer {
     switch (f.state) {
       case "attack": {
         const m = f.move, phase = attackPhase(f);
-        const reach = m.range;
         v.pivot.rotation.z = LEVEL_ANGLE[m.level] ?? 0;
         if (m.parry) {
           // Stance: weapon held upright across the body, glowing while it can deflect.
           v.pivot.rotation.set(0, 1.45, 1.25);
-          v.weapon.scale.x = 0.9;
           v.weaponMat.color.setHex(phase === "active" ? C.parry : phase === "startup" ? C.startup : C.recovery);
           v.weaponMat.emissive.setHex(phase === "active" ? 0x1f7a8a : 0x000000);
           v.pose.rotation.z = phase === "recovery" ? 0.15 : -0.05;
@@ -175,29 +266,27 @@ export class Renderer {
         }
         if (m.armor && !f.armorUsed && phase !== "recovery") v.bodyMat.emissive.setHex(C.armor);
         if (m.level === "throw") {
-          v.weapon.scale.x = phase === "active" ? 0.75 : 0.45;
+          v.weapon.scale.x = v.length * (phase === "active" ? 0.6 : 0.4);
           v.weaponMat.color.setHex(C.throw);
           v.weaponMat.emissive.setHex(phase === "active" ? 0x5a1f8a : 0x000000);
         } else if (phase === "startup") {
           const t = f.frame / m.startup;
           v.pivot.rotation.y = (m.tracking ? 2.4 : 1.4) * (1 - t * 0.35);
-          v.weapon.scale.x = reach * 0.85;
           v.weaponMat.color.setHex(C.startup);
           v.weaponMat.emissive.setHex(0x7a5a00);
         } else if (phase === "active") {
           const t = (f.frame - m.startup) / m.active;
           v.pivot.rotation.y = m.tracking ? 1.2 - t * 2.4 : 0.15 - t * 0.3;
-          v.weapon.scale.x = reach;
           v.weaponMat.color.setHex(C.active);
           v.weaponMat.emissive.setHex(0xaa1a1a);
         } else {
           const t = (f.frame - m.startup - m.active) / m.recovery;
           v.pivot.rotation.y = -0.7 * (1 - t);
           v.pivot.rotation.z -= 0.4;
-          v.weapon.scale.x = reach * 0.85;
           v.weaponMat.color.setHex(C.recovery);
         }
         if (m.level === "low") v.pose.rotation.z = -0.15;
+        if (m.level !== "throw") this.extend(f, v, phase);
         this.poseHitbox(f, v, phase);
         break;
       }
@@ -235,7 +324,7 @@ export class Renderer {
         v.pose.rotation.z = Math.min(1.2, f.frame * 0.05);
         break;
       case "grabbing":
-        v.weapon.scale.x = 0.55;
+        v.weapon.scale.x = v.length * 0.45;
         v.weaponMat.color.setHex(C.throw);
         v.pivot.rotation.z = 0.3 + Math.sin(f.frame * 0.3) * 0.4;
         break;
@@ -264,14 +353,41 @@ export class Renderer {
         if (isGuarding(f)) v.pivot.rotation.set(0, 1.3, isCrouching(f) ? -0.25 : 0.4);
         else v.pivot.rotation.set(0, 0.3, -0.7); // walking forward: weapon down, not guarding
     }
+    v.arm.scale.x = v.pivot.position.x;
+    for (const { m, back } of v.ends) m.position.x = Math.max(0.15, v.weapon.scale.x - back);
     v.group.position.set(f.x, y, f.z);
     v.group.rotation.y = -f.facing;
   }
 
+  /**
+   * The weapon keeps its real length, so a move whose range is longer than the weapon shows
+   * where the extra reach comes from: the arm pushes forward, then the whole body leans/steps in.
+   * At full extension the weapon tip sits exactly on the hitbox edge (where it touches the opponent's body).
+   */
+  extend(f, v, phase) {
+    const m = f.move;
+    const flat = v.length * Math.cos(v.pivot.rotation.z); // horizontal reach of the weapon at this angle
+    // Negative = the weapon is longer than the move's reach: choke up on the grip so the tip still marks the reach.
+    const need = m.range - PIVOT_X - flat;
+    const arm = Math.min(need, MAX_ARM), lean = Math.max(0, need - arm);
+    let k;
+    if (phase === "startup") k = 0.1 * f.frame / m.startup;
+    else if (phase === "active") k = 1;
+    else k = Math.max(0, 1 - 2.5 * (f.frame - m.startup - m.active) / m.recovery);
+    v.pivot.position.x = (PIVOT_X + arm * k) / v.w;
+    v.pose.position.x = lean * k;
+    if (lean > 0.05) v.pose.rotation.z -= 0.12 * k * Math.min(1, lean / 0.4); // tip the torso into a lunge
+  }
+
+  /**
+   * Ground overlay of where the move connects: the sim hits when the opponent's centre is within
+   * range + BODY_RADIUS, i.e. when their body surface is within `range`. The overlay draws that
+   * surface line, so it ends exactly at the weapon tip.
+   */
   poseHitbox(f, v, phase) {
     const m = f.move;
-    if (!this.showHitboxes || m.level === "throw" || phase === "recovery") return;
-    const len = m.range + BODY_RADIUS;
+    if (!this.showHitboxes || m.level === "throw" || m.parry || phase === "recovery") return;
+    const len = m.range;
     v.hitbox.visible = true;
     v.hitbox.position.set(f.x, 0.01, f.z);
     v.hitbox.rotation.y = -f.attackDir;
@@ -279,6 +395,14 @@ export class Renderer {
     v.hbPlane.scale.set(len, m.width, 1);
     v.hbMat.color.setHex(phase === "active" ? C.active : C.startup);
     v.hbMat.opacity = phase === "active" ? 0.35 : 0.1;
+    // Tipper moves: show the sweet spot at the end of the reach.
+    v.tipPlane.visible = !!m.tipper;
+    if (m.tipper) {
+      const from = (m.range + BODY_RADIUS) * TIPPER.from - BODY_RADIUS;
+      v.tipPlane.position.x = (from + len) / 2;
+      v.tipPlane.scale.set(len - from, m.width + 0.02, 1);
+      v.tipMat.opacity = phase === "active" ? 0.5 : 0.15;
+    }
   }
 
   updateCamera(world) {

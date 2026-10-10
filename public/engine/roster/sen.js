@@ -8,6 +8,7 @@ export default {
     "Sen, a patient katana duelist. Waits for mistakes and punishes every whiff. Calm under pressure, sidesteps slow attacks, rarely gambles.",
   signature:
     "Parry: her Mirror Stance deflects any high or mid attack into a free launching riposte, but low attacks and throws beat it and a parry that catches nothing leaves her wide open. The quickest feet in the roster: fast sidesteps and dashes.",
+  look: { build: [0.84, 1.04], accent: 0xece4cf, weapon: "katana", weaponLength: 1.0, parts: ["topknot", "sash", "scabbard"] },
   hp: 95,
   walkForward: 2.7,
   walkBack: 2.2,

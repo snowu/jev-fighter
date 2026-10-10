@@ -8,6 +8,7 @@ export default {
     "Tove, a nervous spear lancer. Keeps the opponent at the tip of her spear and hates being close. Panics and gets jumpy when cornered or rushed.",
   signature:
     "Spacing: her spear hits hardest with the tip at full reach and stuns longer there, but hits weakly point blank. Longest reach in the roster, a long backdash and a retreating thrust to keep people out; light, so she floats long in juggles.",
+  look: { build: [0.86, 1.14], accent: 0x1d4634, weapon: "spear", weaponLength: 2.0, parts: ["hood", "cloak"] },
   hp: 100,
   walkForward: 2.0,
   walkBack: 2.4,
