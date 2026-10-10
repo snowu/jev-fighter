@@ -75,6 +75,12 @@ export class OpponentModel {
         case "duck":
           if (e.attacker === this.me) this.defense.add("crouch_guard");
           break;
+        case "parry":
+          if (theirs) this.defense.add("parried");
+          break;
+        case "armor":
+          if (theirs) this.defense.add("armored");
+          break;
         case "hit":
           if (mine && e.combo === 1) this.defense.add("got_hit");
           if (theirs) this.whiffs.add("hit");
@@ -105,13 +111,14 @@ export class OpponentModel {
       const words = {
         stand_guard: "guarded standing against", crouch_guard: "crouched against", sidestep: "sidestepped",
         backdash: "backdashed away from", got_hit: "got hit by", out_of_range: "stayed out of range of",
+        parried: "parried", armored: "armored through",
       };
       if (c >= 2) out.push({ w: c / d.n, text: `they ${words[k]} ${c} of your last ${d.n} attacks` });
     }
     const o = this.offense;
     if (o.n >= 3) {
       const [k, c] = o.top();
-      const name = k === "throw" ? "throws" : `${k} attacks`;
+      const name = k === "throw" ? "throws" : k === "parry" ? "parry stances" : `${k} attacks`;
       if (c / o.n >= 0.4) out.push({ w: c / o.n, text: `${c} of their last ${o.n} attacks were ${name}` });
     }
     const ab = this.afterBlock;
@@ -149,6 +156,8 @@ export class OpponentModel {
       standGuard: frac(d, "stand_guard"),
       crouchGuard: frac(d, "crouch_guard"),
       sidesteps: frac(d, "sidestep"),
+      parries: frac(d, "parried") + 0.5 * frac(o, "parry"),
+      armors: frac(d, "armored"),
       lowAttacks: frac(o, "low"),
       highAttacks: frac(o, "high"),
       throws: frac(o, "throw"),

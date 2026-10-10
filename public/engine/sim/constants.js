@@ -70,3 +70,18 @@ export const JUGGLE_LANDING_KNOCKDOWN = 34;
 
 // Damage multiplier for the nth hit of a combo.
 export const COMBO_SCALING = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.45];
+
+// ---- Character signatures (each roster entry opts in through move flags or `traits`) ----
+
+// Armor (move flag `armor`): during startup and active frames the move absorbs one high or mid
+// hit, taking part of its damage without flinching. Lows and throws go through it.
+export const ARMOR_DAMAGE = 0.5;
+
+// Parry (move flag `parry: { riposte }`): during its active frames a high or mid strike is
+// deflected; the attacker staggers and the parrier answers with the riposte move.
+// Lows and throws beat it, and a whiffed parry has long recovery.
+export const PARRY_STAGGER_EXTRA = 14; // stagger lasts riposte startup + active + this
+
+// Tipper (move flag `tipper`): connecting with the outer part of the reach hits harder and
+// pushes further; connecting point blank is weak. Rewards spacing.
+export const TIPPER = { from: 0.72, damage: 1.3, hitstun: 6, push: 0.45, sourWithin: 0.85, sourDamage: 0.75 };

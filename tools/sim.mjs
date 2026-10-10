@@ -40,6 +40,7 @@ async function playMatch(charA, charB, brains, seed) {
   const rng = makeRng(seed);
   const ctrls = [0, 1].map((side) => new AIController({ side, brain: brains[side], rng, skill: SKILL }));
   const stats = { frames: 0, rounds: 0, timeouts: 0, hits: 0, blocks: 0, counters: 0, punishes: 0, launches: 0, maxCombo: 0, throws: 0, techs: 0, guardbreaks: 0, whiffs: 0, ducks: 0, comboHits: 0 };
+  stats.sides = [0, 1].map(() => ({ damage: {}, parries: 0, armor: 0, tips: 0, sours: 0, rages: 0 }));
   let inputs = [NEUTRAL_INPUT, NEUTRAL_INPUT];
   while (world.phase !== "over" && world.frame < 60 * 60 * 6) {
     step(world, inputs);
@@ -51,7 +52,15 @@ async function playMatch(charA, charB, brains, seed) {
         if (e.result === "launch" && e.combo === 1) stats.launches++;
         if (e.combo > 1) stats.comboHits++;
         stats.maxCombo = Math.max(stats.maxCombo, e.combo);
+        const side = stats.sides[e.who];
+        side.damage[e.move] = (side.damage[e.move] ?? 0) + e.damage;
+        if (e.tip === "tip") side.tips++;
+        if (e.tip === "sour") side.sours++;
       }
+      if (e.type === "throw") { const d = stats.sides[e.who].damage; d.throw = (d.throw ?? 0) + e.damage; }
+      if (e.type === "parry") stats.sides[e.who].parries++;
+      if (e.type === "armor") stats.sides[e.who].armor++;
+      if (e.type === "rage") stats.sides[e.who].rages++;
       if (e.type === "block") stats.blocks++;
       if (e.type === "throw") stats.throws++;
       if (e.type === "tech") stats.techs++;
@@ -84,23 +93,43 @@ async function main() {
 
   const ids = Object.keys(ROSTER);
   const total = {};
+  const details = [];
   console.log(`matchup            wins A/B/draw   avg round  timeouts  hits  blocks  counters  punishes  launches  maxCombo  throws/techs  guardbreaks`);
   for (const a of ids) for (const b of ids) {
     if (a > b) continue;
     const w = [0, 0, 0];
     const agg = {};
     for (let i = 0; i < MATCHES; i++) {
-      const { winner, stats } = await playMatch(ROSTER[a], ROSTER[b], [new LocalBrain(), new LocalBrain()], SEED * 1000 + i);
-      w[winner === -1 ? 2 : winner]++;
-      for (const [k, v] of Object.entries(stats)) agg[k] = k === "maxCombo" ? Math.max(agg[k] ?? 0, v) : (agg[k] ?? 0) + v;
+      // Alternate sides so any side advantage cancels out; stats.sides are re-ordered back to [a, b].
+      const swap = i % 2 === 1;
+      const { winner, stats } = await playMatch(ROSTER[swap ? b : a], ROSTER[swap ? a : b], [new LocalBrain(), new LocalBrain()], SEED * 1000 + i);
+      if (swap) stats.sides.reverse();
+      w[winner === -1 ? 2 : swap ? 1 - winner : winner]++;
+      for (const [k, v] of Object.entries(stats)) {
+        if (k === "sides") {
+          agg.sides ??= [0, 1].map(() => ({ damage: {}, parries: 0, armor: 0, tips: 0, sours: 0, rages: 0 }));
+          v.forEach((sd, i) => {
+            for (const [m, d] of Object.entries(sd.damage)) agg.sides[i].damage[m] = (agg.sides[i].damage[m] ?? 0) + d;
+            for (const key of ["parries", "armor", "tips", "sours", "rages"]) agg.sides[i][key] += sd[key];
+          });
+        } else agg[k] = k === "maxCombo" ? Math.max(agg[k] ?? 0, v) : (agg[k] ?? 0) + v;
+      }
     }
-    for (const [k, v] of Object.entries(agg)) total[k] = (total[k] ?? 0) + v;
+    for (const [k, v] of Object.entries(agg)) if (k !== "sides") total[k] = (total[k] ?? 0) + v;
+    agg.sides.forEach((sd, i) => {
+      const r = (n) => (n / agg.rounds).toFixed(2);
+      const top = Object.entries(sd.damage).sort((x, y) => y[1] - x[1]).slice(0, 5).map(([m, d]) => `${m} ${(d / agg.rounds).toFixed(1)}`).join(", ");
+      details.push(`${(a + " vs " + b).padEnd(14)} ${i ? "B" : "A"}=${(i ? b : a).padEnd(5)} parry ${r(sd.parries)} armor ${r(sd.armor)} tip ${r(sd.tips)} sour ${r(sd.sours)} rage ${r(sd.rages)} | ${top}`);
+    });
     const per = (k) => (agg[k] / agg.rounds).toFixed(1);
     console.log(
       `${(a + " vs " + b).padEnd(18)} ${`${w[0]}/${w[1]}/${w[2]}`.padEnd(15)} ${(agg.frames / agg.rounds / 60).toFixed(1).padStart(6)}s  ${String(agg.timeouts).padStart(8)}  ${per("hits").padStart(4)}  ${per("blocks").padStart(6)}  ${per("counters").padStart(8)}  ${per("punishes").padStart(8)}  ${per("launches").padStart(8)}  ${String(agg.maxCombo).padStart(8)}  ${per("throws")}/${per("techs")}`.padEnd(120) + per("guardbreaks"),
     );
   }
   console.log("(per-round averages)");
+  if (!args.detail) return;
+  console.log("\nper-side detail (per round): signature events and top damage sources");
+  for (const line of details) console.log(line);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

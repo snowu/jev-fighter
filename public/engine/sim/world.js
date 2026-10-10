@@ -13,17 +13,34 @@
 //   blocking drains the guard gauge; empty gauge = guard break (defenceless)
 //   throws can be broken by pressing throw within the tech window
 //
+// Character signatures (opt-in per move / per character, see constants.js):
+//   armor   the move absorbs one high/mid hit while swinging (lows and throws beat it)
+//   parry   a stance that deflects high/mid strikes into a free riposte (lows and throws beat it)
+//   tipper  spear tips hit harder at full reach, weaker point blank
+//   rage    traits.rage: more damage at low health
+//   movement / juggleFloat: per-character dash, sidestep, backdash and how long they stay airborne
+//
 // Input (per fighter per frame), directions are relative to the opponent:
 //   { move: -1|0|1, crouch, attack: slot|null, sidestep: -1|0|1, dash, backdash, taunt, wakeup }
 
 import * as C from "./constants.js";
-import { totalFrames } from "./moves.js";
+import { totalFrames, moveIdFor, baseSlot } from "./moves.js";
 
 export const NEUTRAL_INPUT = Object.freeze({ move: 0, crouch: false, attack: null, sidestep: 0, dash: false, backdash: false, taunt: false, wakeup: "getup_guard" });
 
-const TIMED_STATES = new Set(["blockstun", "hitstun", "guardbreak", "techstun", "taunt", "sidestep", "dash", "backdash", "roll"]);
+const TIMED_STATES = new Set(["blockstun", "hitstun", "guardbreak", "techstun", "taunt", "sidestep", "dash", "backdash", "roll", "staggered"]);
 const STRIKE_IMMUNE = new Set(["knockdown", "ko", "grabbed", "grabbing"]);
-const UNTHROWABLE = new Set(["sidestep", "hitstun", "blockstun", "techstun", "backdash", "juggle", "roll"]);
+const UNTHROWABLE = new Set(["sidestep", "hitstun", "blockstun", "techstun", "backdash", "juggle", "roll", "staggered"]);
+const ARMORABLE = new Set(["high", "mid"]);
+
+/** Per-character movement (sidestep, dash, backdash, roll), falling back to the shared defaults. */
+const mv = (f, kind) => f.char.movement?.[kind] ?? C[kind.toUpperCase()];
+
+export function enraged(f) {
+  const r = f.char.traits?.rage;
+  return !!r && f.hp > 0 && f.hp / f.char.hp <= r.below;
+}
+const damageMult = (f) => (enraged(f) ? f.char.traits.rage.damage : 1);
 
 export function createFighter(char, side) {
   return {
@@ -34,7 +51,7 @@ export function createFighter(char, side) {
     move: null, attackDir: 0, contact: null, contactFrame: 0, ducked: false, chainSlot: null, chained: false,
     crouch: false, walking: 0, sideDir: 0,
     buffer: null, techPressed: false,
-    combo: 0, comboDamage: 0, juggleHits: 0,
+    combo: 0, comboDamage: 0, juggleHits: 0, armorUsed: false, raging: false,
   };
 }
 
@@ -56,6 +73,7 @@ export function resetRound(world) {
     Object.assign(f, {
       hp: f.char.hp, guard: C.GUARD_MAX, x, z: 0, state: "idle", frame: 0, duration: 0, move: null,
       crouch: false, walking: 0, buffer: null, chainSlot: null, techPressed: false, combo: 0, comboDamage: 0, juggleHits: 0,
+      armorUsed: false, raging: false,
     });
   }
   a.facing = 0;
@@ -201,7 +219,7 @@ function registerInput(f, inp) {
     if (f.state === "attack") {
       f.chainSlot = inp.attack; // string follow-up
       f.buffer = { kind: "attack", value: inp.attack, ttl: C.INPUT_BUFFER }; // or next move if pressed late in recovery
-    } else if (f.state === "grabbed") { if (inp.attack === "throw") f.techPressed = true; }
+    } else if (f.state === "grabbed") { if (baseSlot(inp.attack) === "throw") f.techPressed = true; }
     else f.buffer = { kind: "attack", value: inp.attack, ttl: C.INPUT_BUFFER };
   } else if (inp.sidestep) f.buffer = { kind: "sidestep", value: inp.sidestep, ttl: C.INPUT_BUFFER };
   else if (inp.dash) f.buffer = { kind: "dash", ttl: C.INPUT_BUFFER };
@@ -220,11 +238,11 @@ function updateFighter(world, f, o, inp, emit) {
       if (f.buffer) {
         const buf = f.buffer;
         f.buffer = null;
-        if (buf.kind === "attack") return startAttack(f, o, f.char.slots[buf.value], emit);
+        if (buf.kind === "attack") return startAttack(f, o, moveIdFor(f.char, buf.value), emit);
         f.crouch = false;
-        if (buf.kind === "sidestep") { setState(f, "sidestep", C.SIDESTEP.frames); f.sideDir = buf.value; return emit({ type: "sidestep", who: f.side }); }
-        if (buf.kind === "dash") { setState(f, "dash", C.DASH.frames); return emit({ type: "dash", who: f.side }); }
-        if (buf.kind === "backdash") { setState(f, "backdash", C.BACKDASH.frames); return emit({ type: "backdash", who: f.side }); }
+        if (buf.kind === "sidestep") { setState(f, "sidestep", mv(f, "sidestep").frames); f.sideDir = buf.value; return emit({ type: "sidestep", who: f.side }); }
+        if (buf.kind === "dash") { setState(f, "dash", mv(f, "dash").frames); return emit({ type: "dash", who: f.side }); }
+        if (buf.kind === "backdash") { setState(f, "backdash", mv(f, "backdash").frames); return emit({ type: "backdash", who: f.side }); }
         if (buf.kind === "taunt") { setState(f, "taunt", C.TAUNT_FRAMES); return emit({ type: "taunt", who: f.side }); }
       }
       f.walking = f.crouch ? 0 : inp.move || 0;
@@ -238,7 +256,7 @@ function updateFighter(world, f, o, inp, emit) {
     case "attack": {
       const m = f.move;
       // String follow-up: input any time during the move, comes out once it has connected.
-      const next = f.chainSlot && f.contact && f.contact !== "grab" ? m.cancels?.[f.chainSlot] : null;
+      const next = f.chainSlot && f.contact && f.contact !== "grab" ? m.cancels?.[f.chainSlot] ?? m.cancels?.[baseSlot(f.chainSlot)] : null;
       if (next && f.frame >= f.contactFrame + C.CANCEL_DELAY && f.frame <= m.startup + m.active + C.CANCEL_LATE) {
         return startAttack(f, o, next, emit, true);
       }
@@ -248,7 +266,7 @@ function updateFighter(world, f, o, inp, emit) {
       }
       f.facing = f.attackDir;
       if (f.frame >= totalFrames(m)) {
-        if (!f.contact) emit({ type: "whiff", who: f.side, move: m.id, level: m.level, ducked: f.ducked, evadedBy: o.state });
+        if (!f.contact) emit({ type: "whiff", who: f.side, move: m.id, level: m.level, ducked: f.ducked, evadedBy: o.state, parry: !!m.parry });
         setState(f, "idle");
       }
       return;
@@ -260,22 +278,22 @@ function updateFighter(world, f, o, inp, emit) {
 
     case "sidestep":
       f.facing = angleTo(f, o);
-      moveBy(f, f.facing + f.sideDir * Math.PI / 2, C.SIDESTEP.distance / C.SIDESTEP.frames);
+      moveBy(f, f.facing + f.sideDir * Math.PI / 2, mv(f, "sidestep").distance / mv(f, "sidestep").frames);
       break;
 
     case "dash":
       f.facing = angleTo(f, o);
-      if (distance(f, o) > C.MIN_SEPARATION + 0.1) moveBy(f, f.facing, C.DASH.distance / C.DASH.frames);
+      if (distance(f, o) > C.MIN_SEPARATION + 0.1) moveBy(f, f.facing, mv(f, "dash").distance / mv(f, "dash").frames);
       break;
 
     case "backdash":
       f.facing = angleTo(f, o);
-      moveBy(f, f.facing + Math.PI, C.BACKDASH.distance / C.BACKDASH.frames);
+      moveBy(f, f.facing + Math.PI, mv(f, "backdash").distance / mv(f, "backdash").frames);
       break;
 
     case "roll":
       f.facing = angleTo(f, o);
-      moveBy(f, f.facing + Math.PI - f.sideDir * Math.PI / 3, C.ROLL.distance / C.ROLL.frames);
+      moveBy(f, f.facing + Math.PI - f.sideDir * Math.PI / 3, mv(f, "roll").distance / mv(f, "roll").frames);
       break;
 
     case "juggle":
@@ -292,7 +310,7 @@ function updateFighter(world, f, o, inp, emit) {
         const choice = inp.wakeup || "getup_guard";
         emit({ type: "wakeup", who: f.side, choice });
         f.facing = angleTo(f, o);
-        if (choice === "roll") { setState(f, "roll", C.ROLL.frames); f.sideDir = world.frame % 2 ? 1 : -1; }
+        if (choice === "roll") { setState(f, "roll", mv(f, "roll").frames); f.sideDir = world.frame % 2 ? 1 : -1; }
         else if (choice === "wakeup_attack") startAttack(f, o, "wakeup", emit);
         else { setState(f, "idle"); f.crouch = false; }
       }
@@ -313,8 +331,9 @@ function updateFighter(world, f, o, inp, emit) {
 
     case "grabbing":
       if (f.frame >= C.THROW_FRAMES) {
-        const dmg = f.char.moves[f.char.slots.throw].damage;
+        const dmg = Math.round(f.char.moves[f.char.slots.throw].damage * damageMult(f));
         o.hp = Math.max(0, o.hp - dmg);
+        checkRage(o, emit);
         emit({ type: "throw", who: f.side, target: o.side, damage: dmg });
         setState(f, "idle");
         world.hitstop = C.HITSTOP.hit;
@@ -343,12 +362,13 @@ function startAttack(f, o, moveId, emit, chained = false) {
   f.chained = chained;
   f.chainSlot = null;
   f.buffer = null;
+  f.armorUsed = false;
   f.crouch = m.level === "low";
   emit({ type: "attack_start", who: f.side, move: m.id, level: m.level, chained });
 }
 
 function checkContact(a, d, emit) {
-  if (attackPhase(a) !== "active" || a.contact) return null;
+  if (attackPhase(a) !== "active" || a.contact || a.move.parry) return null;
   if (STRIKE_IMMUNE.has(d.state)) return null;
   if (d.state === "roll" && d.frame < 18) return null;
 
@@ -364,23 +384,49 @@ function checkContact(a, d, emit) {
     return { kind: "grab", a, d, m };
   }
   if (d.state === "juggle") return { kind: "hit", a, d, m, counter: false };
+  const tip = !m.tipper ? null : along >= (m.range + C.BODY_RADIUS) * C.TIPPER.from ? "tip" : along <= C.TIPPER.sourWithin ? "sour" : null;
+  const dPhase = attackPhase(d);
+  if (ARMORABLE.has(m.level) && dPhase !== null && dPhase !== "recovery") {
+    if (d.move.parry && dPhase === "active") return { kind: "parry", a, d, m };
+    if (d.move.armor && !d.armorUsed) return { kind: "armor", a, d, m, tip };
+  }
   if (m.level === "high" && isCrouching(d)) {
     if (!a.ducked) { a.ducked = true; emit({ type: "duck", who: d.side, attacker: a.side, move: m.id }); }
     return null;
   }
   const blocked = isGuarding(d) && (m.level === "low" ? isCrouching(d) : !isCrouching(d));
-  const counter = (d.state === "attack" && d.frame < d.move.startup) || d.state === "taunt";
-  return { kind: blocked ? "block" : "hit", a, d, m, counter };
+  const counter = (d.state === "attack" && d.frame < d.move.startup) || d.state === "taunt" || d.state === "staggered";
+  return { kind: blocked ? "block" : "hit", a, d, m, counter, tip };
 }
 
-function applyContact(world, { kind, a, d, m, counter }, emit) {
+function applyContact(world, { kind, a, d, m, counter, tip }, emit) {
   a.contact = kind;
   a.contactFrame = a.frame;
   const attackerLeft = totalFrames(m) - a.frame;
 
+  if (kind === "parry") {
+    const riposte = d.char.moves[d.move.parry.riposte];
+    setState(a, "staggered", riposte.startup + riposte.active + C.PARRY_STAGGER_EXTRA);
+    a.crouch = false;
+    startAttack(d, a, riposte.id, emit);
+    world.hitstop = Math.max(world.hitstop, C.HITSTOP.counter);
+    world.epoch++;
+    return emit({ type: "parry", who: d.side, target: a.side, move: m.id, level: m.level });
+  }
+
+  if (kind === "armor") {
+    const damage = Math.max(1, Math.round(m.damage * C.ARMOR_DAMAGE * damageMult(a)));
+    d.armorUsed = true;
+    d.hp = Math.max(0, d.hp - damage);
+    if (d.hp <= 0) setState(d, "ko");
+    checkRage(d, emit);
+    world.hitstop = Math.max(world.hitstop, C.HITSTOP.block + 2);
+    return emit({ type: "armor", who: d.side, target: a.side, move: m.id, absorbed: d.move?.id ?? null, damage, ko: d.hp <= 0 });
+  }
+
   if (kind === "grab") {
     setState(a, "grabbing");
-    const preTech = d.buffer?.kind === "attack" && d.buffer.value === "throw";
+    const preTech = d.buffer?.kind === "attack" && baseSlot(d.buffer.value) === "throw";
     setState(d, "grabbed");
     d.techPressed = preTech;
     d.crouch = false;
@@ -406,7 +452,8 @@ function applyContact(world, { kind, a, d, m, counter }, emit) {
   const punish = d.state === "attack" && attackPhase(d) === "recovery";
   const combo = d.state === "hitstun" || wasJuggled ? d.combo + 1 : 1;
   const scale = C.COMBO_SCALING[Math.min(combo - 1, C.COMBO_SCALING.length - 1)];
-  const damage = Math.max(1, Math.round(m.damage * scale * (counter ? C.COUNTER_DAMAGE : 1)));
+  const tipMult = tip === "tip" ? C.TIPPER.damage : tip === "sour" ? C.TIPPER.sourDamage : 1;
+  const damage = Math.max(1, Math.round(m.damage * scale * tipMult * damageMult(a) * (counter ? C.COUNTER_DAMAGE : 1)));
   const comboDamage = (combo > 1 ? d.comboDamage : 0) + damage;
   const juggleHits = wasJuggled ? d.juggleHits + 1 : 0;
 
@@ -420,14 +467,15 @@ function applyContact(world, { kind, a, d, m, counter }, emit) {
     d.frame = C.KNOCKDOWN_FRAMES - C.JUGGLE_LANDING_KNOCKDOWN;
     result = "knockdown";
   } else if (wasJuggled || m.launch || (counter && m.launchOnCounter)) {
-    const dur = wasJuggled ? Math.max(C.JUGGLE_MIN_FRAMES, Math.round(C.JUGGLE_FRAMES * C.JUGGLE_DECAY ** juggleHits)) : C.JUGGLE_FRAMES;
+    const float = d.char.juggleFloat ?? 1; // heavy fighters fall faster
+    const dur = Math.round(float * (wasJuggled ? Math.max(C.JUGGLE_MIN_FRAMES, C.JUGGLE_FRAMES * C.JUGGLE_DECAY ** juggleHits) : C.JUGGLE_FRAMES));
     setState(d, "juggle", dur);
     result = "launch";
   } else if (m.knockdown) { setState(d, "knockdown"); result = "knockdown"; }
-  else { setState(d, "hitstun", m.hitstun + (counter ? C.COUNTER_HITSTUN : 0)); result = "hitstun"; }
+  else { setState(d, "hitstun", m.hitstun + (counter ? C.COUNTER_HITSTUN : 0) + (tip === "tip" ? C.TIPPER.hitstun : 0)); result = "hitstun"; }
 
   // Launches pop the opponent up in place so the juggle is reachable.
-  moveBy(d, a.attackDir, result === "launch" ? (wasJuggled ? 0.1 : 0) : C.PUSH_ON_HIT);
+  moveBy(d, a.attackDir, result === "launch" ? (wasJuggled ? 0.1 : 0) : tip === "tip" ? C.TIPPER.push : C.PUSH_ON_HIT);
   d.combo = combo;
   d.comboDamage = comboDamage;
   d.juggleHits = juggleHits;
@@ -436,10 +484,17 @@ function applyContact(world, { kind, a, d, m, counter }, emit) {
 
   emit({
     type: "hit", who: a.side, target: d.side, move: m.id, level: m.level, damage,
-    counter, punish, combo, comboDamage, result,
+    counter, punish, combo, comboDamage, result, tip,
     advantage: result === "hitstun" ? d.duration - attackerLeft : null,
   });
   if (result === "knockdown") emit({ type: "knockdown", who: d.side, by: a.side });
+  checkRage(d, emit);
+}
+
+function checkRage(f, emit) {
+  if (f.raging || !enraged(f)) return;
+  f.raging = true;
+  emit({ type: "rage", who: f.side });
 }
 
 function separate(a, b) {

@@ -25,7 +25,7 @@ on the server: the page talks to `/api/brain`, and `server.mjs` forwards that to
 | `W` / `Q` | sidestep into the screen / toward the camera: dodges straight attacks, not tracking ones |
 | `D` `D` | dash in (fast, but you're not guarding) |
 | `Space` or `A` `A` | backdash |
-| `J` `K` `L` `U` | light, heavy, low, special |
+| `J` `K` `L` `U` | light, heavy, low, special. Hold `D` or `A` while pressing for a directional move (e.g. `D`+`K`). |
 | `I` | throw. Press it right after being grabbed to break the throw. |
 | `T` | taunt (you're open to a counter-hit) |
 | hold an attack button / hold back while knocked down | wake-up attack / roll |
@@ -46,7 +46,20 @@ tools/                  combat tests, headless sim runner
 server.mjs              static server + /api/brain proxy
 ```
 
-**Adding a character**: copy a roster file, change the moves, persona and AI profile, and
-register it in `roster/index.js`. Jev's questions are built from the move data, so no AI code changes.
+**Adding a character**: copy a roster file, change the moves, persona, signature and AI
+profile, and register it in `roster/index.js`. Signatures are move flags (`armor`, `parry`,
+`tipper`) and `traits` (`rage`), plus optional `movement` and `juggleFloat`. Jev's questions are
+built from the move data, so there are no AI code changes.
+
+## Fighters
+
+- **Kara, Axe Berserker**: armored heavy swings shrug off one high or mid hit. She hits harder
+  below a third of her health. Beat her with lows and throws.
+- **Sen, Katana Duelist**: `U` Mirror Stance parries highs and mids into a launching riposte.
+  Lows and throws beat it.
+- **Tove, Spear Lancer**: spear tips hit hardest at full reach and weakly point blank. Get in
+  close on her.
+
+`Tab` in game shows the full move list with frame data and each fighter's signature.
 
 See [DESIGN.md](DESIGN.md) for how the AI uses Jev.

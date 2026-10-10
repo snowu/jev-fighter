@@ -46,7 +46,8 @@ export class HumanController {
     input.move = fwd && !back ? 1 : back && !fwd ? -1 : 0;
     input.crouch = this.held(DOWN);
     for (const p of this.presses) {
-      if (ATTACK_KEYS[p]) input.attack = ATTACK_KEYS[p];
+      // Holding forward/back picks a directional variant (fwd_heavy…); the sim falls back to the plain button.
+      if (ATTACK_KEYS[p]) input.attack = input.move && ATTACK_KEYS[p] !== "throw" ? `${input.move > 0 ? "fwd" : "back"}_${ATTACK_KEYS[p]}` : ATTACK_KEYS[p];
       else if (p === "KeyW" || p === "ArrowUp") input.sidestep = this.sidestepDir(1);
       else if (p === "KeyQ") input.sidestep = this.sidestepDir(-1);
       else if (p === "Space" || p === "backdash") input.backdash = true;

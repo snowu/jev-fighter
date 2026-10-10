@@ -2,13 +2,14 @@
 // It only reads the sim; swapping in rigged models later doesn't touch combat or AI.
 import * as THREE from "three";
 import { ARENA_RADIUS, BODY_RADIUS, JUGGLE_FRAMES } from "../engine/sim/constants.js";
-import { attackPhase, isCrouching, isGuarding } from "../engine/sim/world.js";
+import { attackPhase, isCrouching, isGuarding, enraged } from "../engine/sim/world.js";
 
 const LEVEL_ANGLE = { high: 0.4, mid: 0, low: -0.75, throw: -0.1 };
 const LEVEL_HEIGHT = { high: 1.5, mid: 1.1, low: 0.35, throw: 1.1 };
 const C = {
   weapon: 0xc8ced9, startup: 0xf2c14e, active: 0xff4545, recovery: 0x5d6575, throw: 0xc07bff,
   block: 0x2a5db8, hit: 0x9a1f1f, grab: 0x6b2fa8,
+  parry: 0x7ae8ff, armor: 0xb85a00, rage: 0x5a0d08,
 };
 
 export class Renderer {
@@ -108,10 +109,15 @@ export class Renderer {
         const t = 0.3;
         const pos = new THREE.Vector3(d.x + (a.x - d.x) * t, LEVEL_HEIGHT[e.level] ?? 1, d.z + (a.z - d.z) * t);
         if (e.type === "block") this.spark(pos, 0x7ab8ff, 0.14);
-        else this.spark(pos, e.counter ? 0xff3b3b : e.punish ? 0xf2c14e : 0xffa64d, e.counter || e.result === "launch" ? 0.3 : 0.2);
+        else this.spark(pos, e.counter ? 0xff3b3b : e.tip === "tip" ? 0x59c98b : e.punish ? 0xf2c14e : 0xffa64d, e.counter || e.result === "launch" || e.tip === "tip" ? 0.3 : 0.2);
         if (e.type === "hit") this.shake = Math.max(this.shake, e.counter || e.result !== "hitstun" ? 0.12 : 0.05);
       }
       if (e.type === "throw") this.shake = 0.1;
+      if (e.type === "parry" || e.type === "armor") {
+        const d = world.fighters[e.who];
+        this.spark(new THREE.Vector3(d.x, 1.2, d.z), e.type === "parry" ? C.parry : 0xffb347, 0.32);
+        this.shake = Math.max(this.shake, e.type === "parry" ? 0.1 : 0.06);
+      }
       if (e.type === "tech") {
         const [a, b] = world.fighters;
         this.spark(new THREE.Vector3((a.x + b.x) / 2, 1.2, (a.z + b.z) / 2), 0xffffff, 0.25);
@@ -149,7 +155,8 @@ export class Renderer {
     v.weapon.scale.x = 0.9;
     v.weaponMat.color.setHex(C.weapon);
     v.weaponMat.emissive.setHex(0x000000);
-    v.bodyMat.emissive.setHex(0x000000);
+    // Rage: a dull red glow under every state that doesn't set its own.
+    v.bodyMat.emissive.setHex(enraged(f) ? (Math.floor(f.frame / 12) % 2 ? C.rage : 0x3a0806) : 0x000000);
     v.hitbox.visible = false;
 
     switch (f.state) {
@@ -157,6 +164,16 @@ export class Renderer {
         const m = f.move, phase = attackPhase(f);
         const reach = m.range;
         v.pivot.rotation.z = LEVEL_ANGLE[m.level] ?? 0;
+        if (m.parry) {
+          // Stance: weapon held upright across the body, glowing while it can deflect.
+          v.pivot.rotation.set(0, 1.45, 1.25);
+          v.weapon.scale.x = 0.9;
+          v.weaponMat.color.setHex(phase === "active" ? C.parry : phase === "startup" ? C.startup : C.recovery);
+          v.weaponMat.emissive.setHex(phase === "active" ? 0x1f7a8a : 0x000000);
+          v.pose.rotation.z = phase === "recovery" ? 0.15 : -0.05;
+          break;
+        }
+        if (m.armor && !f.armorUsed && phase !== "recovery") v.bodyMat.emissive.setHex(C.armor);
         if (m.level === "throw") {
           v.weapon.scale.x = phase === "active" ? 0.75 : 0.45;
           v.weaponMat.color.setHex(C.throw);
@@ -224,6 +241,11 @@ export class Renderer {
         break;
       case "techstun":
         v.pose.rotation.z = 0.18;
+        break;
+      case "staggered":
+        v.bodyMat.emissive.setHex(f.frame % 8 < 4 ? 0x1f6a7a : 0x0a2a33);
+        v.pose.rotation.z = 0.35 + Math.sin(f.frame * 0.5) * 0.12;
+        v.pivot.rotation.z = -1.2;
         break;
       case "taunt":
         v.pivot.rotation.set(f.frame * 0.35, 0, 1.2);

@@ -9,8 +9,9 @@
 
 import { NEUTRAL_INPUT, distance, snapshot } from "../sim/world.js";
 import { BODY_RADIUS } from "../sim/constants.js";
-import { ATTACK_SLOTS, starter, maxReach, fastestStrike } from "../sim/moves.js";
+import { slotsOf, starter, maxReach, fastestStrike, isStrike, strikes } from "../sim/moves.js";
 import { OpponentModel } from "./opponentModel.js";
+import { attackSlots, parrySlot, armorSlots } from "./questions.js";
 import { sample, chance, randInt } from "./sampling.js";
 
 export const DIFFICULTY = {
@@ -21,6 +22,13 @@ export const DIFFICULTY = {
 
 const NOTABLE = new Set(["hit", "block", "whiff", "duck", "throw", "tech", "guardbreak"]);
 const reachOf = (m) => m.range + BODY_RADIUS + (m.advance ?? 0);
+const slotOf = (char, move) => slotsOf(char).find((s) => starter(char, s) === move);
+
+/** Where to stand when poking: just inside the second-longest strike, the tip zone of spear pokes. */
+function pokeRange(char) {
+  const reaches = strikes(char).map(reachOf).sort((a, b) => b - a);
+  return (reaches[1] ?? reaches[0]) - 0.15;
+}
 
 export class AIController {
   /** skill: optional override of the character's ai skill numbers (e.g. for fair balance tests). */
@@ -157,7 +165,12 @@ export class AIController {
       const correct = m.level === "mid" ? "stand" : "crouch";
       let r = sample(plan.incoming, rng, this.shape);
       if (read && r === "sidestep" && m.tracking) r = correct === "stand" ? "stand_guard" : "crouch_guard";
-      if (r === "counter_attack" && me.state === "blockstun") r = "stand_guard";
+      // A read low or throw is not worth parrying or armoring: duck it instead.
+      if (read && (r === "parry" || r === "armor_through") && (m.level === "low" || m.level === "throw")) r = "crouch_guard";
+      if (me.state === "blockstun" && (r === "counter_attack" || r === "parry" || r === "armor_through")) r = "stand_guard";
+      if (r === "parry") r = this.tryParry(world, m, framesToActive) ? null : correct === "crouch" && read ? "crouch_guard" : "stand_guard";
+      else if (r === "armor_through") r = this.tryArmor(world, m, framesToActive) ? null : "stand_guard";
+      if (!r) return;
       if (r === "stand_guard" || r === "crouch_guard") {
         mem.guardStance = read ? correct : r === "crouch_guard" ? "crouch" : "stand";
         mem.guardUntil = f + Math.max(0, framesToActive) + m.active + 6;
@@ -173,7 +186,7 @@ export class AIController {
           mem.guardUntil = f + Math.max(0, framesToActive) + m.active + 6;
           this.note(world, `too far to counter → ${mem.guardStance} guard`);
         } else {
-          this.enqueue(world, { attack: ATTACK_SLOTS.find((s) => starter(me.char, s) === fast) });
+          this.enqueue(world, { attack: slotOf(me.char, fast) });
           this.note(world, `counter-attack vs ${m.name}${fast.startup < framesToActive ? "" : " (gamble)"}`);
         }
       }
@@ -218,9 +231,35 @@ export class AIController {
     }
   }
 
-  /** Queue an action for the next actionable frame; it expires if the moment passes. */
-  enqueue(world, action, ttl = 40) {
-    this.mem.queued = { action, until: world.frame + ttl };
+  /** Time a parry so its window covers the incoming hit. False if it's too late to parry. */
+  tryParry(world, m, framesToActive) {
+    const slot = parrySlot(this.me.char);
+    const p = starter(this.me.char, slot);
+    if (framesToActive < p.startup + 1) return false;
+    // Aim for the window to open a few frames before the hit, and never press so early it closes first.
+    const delay = Math.max(0, framesToActive - p.startup - 6);
+    this.enqueue(world, { attack: slot }, 10, delay);
+    this.mem.guardUntil = 0;
+    this.note(world, `parry ${m.name}${delay ? ` (wait ${delay}f)` : ""}`);
+    return true;
+  }
+
+  /** Swing an armored move through the incoming attack, if one reaches. */
+  tryArmor(world, m, framesToActive) {
+    if (framesToActive < 1) return false;
+    const dist = distance(this.me, this.opp);
+    const slot = armorSlots(this.me.char).filter((s) => reachOf(starter(this.me.char, s)) >= dist)
+      .sort((a, b) => starter(this.me.char, a).startup - starter(this.me.char, b).startup)[0];
+    if (!slot) return false;
+    this.enqueue(world, { attack: slot }, 10);
+    this.mem.guardUntil = 0;
+    this.note(world, `armor through ${m.name} with ${starter(this.me.char, slot).name}`);
+    return true;
+  }
+
+  /** Queue an action for the next actionable frame (after `delay`); it expires if the moment passes. */
+  enqueue(world, action, ttl = 40, delay = 0) {
+    this.mem.queued = { action, from: world.frame + delay, until: world.frame + delay + ttl };
   }
 
   /** Prefer follow-ups that end in a launch or knockdown. */
@@ -250,7 +289,8 @@ export class AIController {
     if (!this.plan) return input;
 
     if (mem.queued) {
-      const { action, until } = mem.queued;
+      const { action, from, until } = mem.queued;
+      if (f < from) return input; // holding still (guarding) until the timed action
       mem.queued = null;
       if (f <= until) { Object.assign(input, action); return input; }
     }
@@ -283,8 +323,9 @@ export class AIController {
     }
     if (!this.mem.punishKey.go) return null;
     let best = null, bestValue = -1;
-    for (const slot of ATTACK_SLOTS) {
+    for (const slot of slotsOf(this.me.char)) {
       const m = starter(this.me.char, slot);
+      if (!isStrike(m) && m.level !== "throw") continue;
       if (m.startup + 1 > remaining) continue;
       if (m.level === "throw" ? dist > 1.05 : reachOf(m) < dist) continue;
       const value = m.damage + (m.launch ? 14 : 0) + (m.cancels ? 6 : 0);
@@ -305,7 +346,7 @@ export class AIController {
 
     switch (mem.tactic) {
       case "pressure": target = Math.max(0.85, fastReach - 0.3); rate = 1.5; bias = { light: 1.5 }; break;
-      case "poke": target = myReach - 0.15; rate = 1.0; break;
+      case "poke": target = pokeRange(me.char); rate = 1.0; break;
       case "bait": target = Math.floor(f / 40) % 2 ? oppReach + 0.6 : oppReach - 0.05; rate = 0.25; break;
       case "mixup": target = 0.95; rate = 1.3; bias = { low: 2, throw: 2, heavy: 1.3 }; break;
       case "throw_rush": target = 0.8; rate = 1.0; bias = { throw: 5 }; break;
@@ -330,9 +371,21 @@ export class AIController {
     input.crouch = input.move === 0 && mem.stance === "crouch";
 
     // Only attack around the tactic's chosen distance (pokers and baiters may swing from further out).
+    // Parry fighters sometimes raise the stance on a read as the opponent steps into range.
+    const parry = parrySlot(me.char);
+    const defensive = mem.tactic === "turtle" || mem.tactic === "bait" || mem.tactic === "circle";
+    if (parry && defensive && f >= mem.cooldown && dist < oppReach + 0.2 && opp.state === "idle" && opp.walking > 0
+        && chance(0.02 * (plan.incoming.parry ?? 0) * 4 * this.diff.rate, rng)) {
+      input.attack = parry;
+      input.move = 0;
+      mem.cooldown = f + randInt(40, 80, rng);
+      this.note(world, "parry on a read");
+      return input;
+    }
+
     const inBand = dist <= target + 0.45 || mem.tactic === "poke" || mem.tactic === "bait";
     if (rate > 0 && inBand && f >= mem.cooldown && chance(0.03 * rate * (0.35 + 1.3 * aggression) * this.diff.rate, rng)) {
-      const reachable = ATTACK_SLOTS.filter((s) => {
+      const reachable = attackSlots(me.char).filter((s) => {
         const m = starter(me.char, s);
         return m.level === "throw" ? dist <= 1.05 : reachOf(m) >= dist;
       });

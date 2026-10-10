@@ -2,7 +2,7 @@
 // Numbers are bucketed into words here; Jev is weak at raw numbers and distractors.
 
 import { ARENA_RADIUS, GUARD_MAX } from "../sim/constants.js";
-import { distance, attackPhase, isCrouching } from "../sim/world.js";
+import { distance, attackPhase, isCrouching, enraged } from "../sim/world.js";
 import { maxReach, fastestStrike } from "../sim/moves.js";
 
 export function distanceWords(d, me, opp) {
@@ -50,6 +50,7 @@ export function stateWords(f, viewer) {
     case "attack": {
       const phase = attackPhase(f);
       if (phase === "recovery") return `recovering from ${m.name}, open to punishment`;
+      if (m.parry) return `holding ${m.name}, a parry stance (high and mid attacks get deflected)`;
       return `attacking with ${m.name} (${m.level})`;
     }
     case "blockstun": return "blocking an attack";
@@ -61,6 +62,7 @@ export function stateWords(f, viewer) {
     case "backdash": return "dashing backwards";
     case "roll": return "rolling away";
     case "taunt": return "taunting";
+    case "staggered": return "staggered after being parried, defenceless";
     case "grabbing": return "throwing";
     case "grabbed": return "being thrown";
     default: return f.state;
@@ -88,6 +90,9 @@ const EVENT_WORDS = {
   throw: (e, me) => (e.who === me ? "you threw the opponent" : "you got thrown"),
   tech: (e, me) => (e.who === me ? "you broke a throw" : "the opponent broke your throw"),
   guardbreak: (e, me) => (e.who === me ? "your guard broke" : "you broke the opponent's guard"),
+  parry: (e, me) => (e.who === me ? "you parried the opponent's attack" : "the opponent parried your attack"),
+  armor: (e, me) => (e.who === me ? "your armored swing absorbed the opponent's hit" : "the opponent's armored swing absorbed your hit"),
+  rage: (e, me) => (e.who === me ? "you became enraged" : "the opponent became enraged"),
 };
 
 /** Build the state object sent to Jev. */
@@ -96,11 +101,15 @@ export function describeSituation(world, side, model, recentEvents = []) {
   const situation = {
     fighter: me.char.persona,
     weapon: me.char.weapon,
+    your_style: me.char.signature,
     opponent: `${opp.char.name}, ${opp.char.title}: ${opp.char.weapon}`,
+    opponent_style: opp.char.signature,
     distance: distanceWords(distance(me, opp), me, opp),
     your_health: healthWords(me),
     opponent_health: healthWords(opp),
     your_guard_gauge: guardWords(me),
+    ...(enraged(me) ? { your_rage: "enraged: your attacks hit much harder now" } : {}),
+    ...(enraged(opp) ? { opponent_rage: "the opponent is enraged and hits much harder now" } : {}),
     opponent_guard_gauge: guardWords(opp),
     match: roundWords(world, side),
     you_now: stateWords(me),

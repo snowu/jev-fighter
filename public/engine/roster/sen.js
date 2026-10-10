@@ -6,10 +6,13 @@ export default {
   weapon: "katana: fast precise cuts with medium reach",
   persona:
     "Sen, a patient katana duelist. Waits for mistakes and punishes every whiff. Calm under pressure, sidesteps slow attacks, rarely gambles.",
+  signature:
+    "Parry: her Mirror Stance deflects any high or mid attack into a free launching riposte, but low attacks and throws beat it and a parry that catches nothing leaves her wide open. The quickest feet in the roster: fast sidesteps and dashes.",
   hp: 95,
-  walkForward: 2.6,
-  walkBack: 2.1,
-  slots: { light: "draw", heavy: "rising", low: "ankle", special: "iai", throw: "wristlock" },
+  walkForward: 2.7,
+  walkBack: 2.2,
+  movement: { sidestep: { frames: 16, distance: 1.4 }, dash: { frames: 12, distance: 1.5 } },
+  slots: { light: "draw", heavy: "rising", low: "ankle", special: "mirror", throw: "wristlock", fwd_heavy: "iai", back_light: "sheathe" },
   moves: {
     draw: { name: "Quick Draw", level: "high", startup: 9, active: 2, recovery: 12, damage: 6, range: 1.4, width: 0.4, hitstun: 17, blockstun: 13, guardDamage: 7, cancels: { light: "draw2", low: "flick" } },
     draw2: { name: "Double Draw", level: "mid", startup: 12, active: 2, recovery: 16, damage: 7, range: 1.4, width: 0.4, hitstun: 20, blockstun: 12, guardDamage: 9, cancels: { heavy: "crescent" } },
@@ -18,7 +21,10 @@ export default {
     rising: { name: "Rising Cut", level: "mid", startup: 15, active: 3, recovery: 16, damage: 14, range: 1.6, width: 0.45, launchOnCounter: true, hitstun: 22, blockstun: 12, guardDamage: 16 },
     ankle: { name: "Ankle Slice", level: "low", startup: 13, active: 2, recovery: 15, damage: 9, range: 1.5, width: 0.4, hitstun: 18, blockstun: 11, guardDamage: 9, cancels: { heavy: "heaven" } },
     heaven: { name: "Heaven Slash", level: "mid", startup: 13, active: 3, recovery: 24, damage: 8, range: 1.4, width: 0.45, launch: true, hitstun: 0, blockstun: 11, guardDamage: 12 },
-    iai: { name: "Iai Lunge", level: "mid", startup: 14, active: 4, recovery: 22, damage: 15, range: 1.5, advance: 1.1, width: 0.35, hitstun: 22, blockstun: 12, guardDamage: 18 },
+    iai: { name: "Iai Lunge", level: "mid", startup: 14, active: 4, recovery: 24, damage: 12, range: 1.5, advance: 1.1, width: 0.35, hitstun: 22, blockstun: 12, guardDamage: 18 },
+    mirror: { name: "Mirror Stance", level: "parry", parry: { riposte: "riposte" }, startup: 4, active: 18, recovery: 24, damage: 0, range: 0, width: 0 },
+    riposte: { name: "Mirror Riposte", level: "mid", startup: 6, active: 3, recovery: 20, damage: 10, range: 1.5, advance: 0.9, width: 0.5, launch: true, hitstun: 0, blockstun: 10, guardDamage: 10 },
+    sheathe: { name: "Sheathing Cut", level: "high", startup: 11, active: 2, recovery: 14, damage: 8, range: 1.5, advance: -0.7, width: 0.45, hitstun: 18, blockstun: 12, guardDamage: 8 },
     wristlock: { name: "Wrist Lock", level: "throw", startup: 11, active: 2, recovery: 22, damage: 15, range: 0.95, width: 0.6 },
   },
   ai: {
@@ -31,7 +37,7 @@ export default {
     local: {
       aggression: 0.35,
       tactics: { pressure: 0.8, poke: 1.5, bait: 3, throw_rush: 0.5, turtle: 2, circle: 1.5, retreat: 0.5 },
-      incoming: { stand_guard: 3, crouch_guard: 1.5, sidestep: 1.5, backdash: 1, counter_attack: 0.6 },
+      incoming: { stand_guard: 2.5, crouch_guard: 1.5, sidestep: 1.5, backdash: 1, counter_attack: 0.6, parry: 1.2 },
       afterBlocked: { keep_attacking: 0.6, throw: 0.6, guard: 3, sidestep: 1.2, backdash: 1.2 },
       wakeup: { getup_guard: 3, roll: 1.5, wakeup_attack: 0.4 },
       tech: 0.7,

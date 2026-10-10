@@ -1,7 +1,7 @@
 import { createWorld, step, resetRound, NEUTRAL_INPUT } from "../engine/sim/world.js";
 import { GUARD_MAX } from "../engine/sim/constants.js";
 import { ROSTER } from "../engine/roster/index.js";
-import { ATTACK_SLOTS, starter, frameLine, blockAdvantage } from "../engine/sim/moves.js";
+import { slotsOf, baseSlot, starter, frameLine } from "../engine/sim/moves.js";
 import { AIController, DummyController, DIFFICULTY } from "../engine/ai/controller.js";
 import { LocalBrain, JevBrain, proxyTransport } from "../engine/ai/brains.js";
 import { makeRng } from "../engine/ai/sampling.js";
@@ -11,6 +11,8 @@ import { Renderer } from "./render.js";
 const $ = (id) => document.getElementById(id);
 const TICK_MS = 1000 / 60;
 const KEY_FOR = { light: "J", heavy: "K", low: "L", special: "U", throw: "I" };
+const DIR_KEY = { fwd: "→", back: "←" };
+const keyFor = (slot) => (slot.includes("_") ? DIR_KEY[slot.split("_")[0]] : "") + KEY_FOR[baseSlot(slot)];
 
 // ---- settings & menu -------------------------------------------------------------
 
@@ -164,6 +166,7 @@ function onEvent(e) {
       if (e.counter) pop(F[e.target], "COUNTER!", "#ff4d4d");
       else if (e.punish) pop(F[e.target], "PUNISH!", "#f2c14e");
       if (e.result === "launch" && e.combo === 1) pop(F[e.target], "LAUNCH!", "#ffa64d");
+      if (e.tip === "tip") pop(F[e.target], "TIPPER!", "#59c98b");
       if (e.combo >= 2) game.combos[e.who] = { hits: e.combo, dmg: e.comboDamage, at: performance.now() };
       if (e.advantage !== null && e.who === 0) game.lastAdv = { text: `${F[0].char.moves[e.move].name}: ${fmtAdv(e.advantage)} on hit`, adv: e.advantage };
       break;
@@ -176,6 +179,9 @@ function onEvent(e) {
     case "duck": pop(F[e.who], "DUCK", "#7ab8ff"); break;
     case "throw": pop(F[e.target], "THROW", "#c07bff"); break;
     case "taunt": pop(F[e.who], "TAUNT", "#ffffff"); break;
+    case "parry": pop(F[e.who], "PARRY!", "#7ae8ff"); break;
+    case "armor": pop(F[e.who], "ARMOR", "#ffb347"); break;
+    case "rage": pop(F[e.who], "RAGE", "#ff3b2f"); break;
   }
 }
 
@@ -230,7 +236,7 @@ function renderMind() {
     const d = c.debugInfo();
     const char = game.world.fighters[c.side].char;
     const p = d.plan;
-    const moveNames = Object.fromEntries(ATTACK_SLOTS.map((s) => [s, starter(char, s).name]));
+    const moveNames = Object.fromEntries(slotsOf(char).map((s) => [s, `${starter(char, s).name} (${keyFor(s)})`]));
     const src = p?.source ?? "—";
     return `<div class="mindcard">
       <h3>${char.name}'s mind <span class="tag ${src === "jev" ? "jev" : ""}">${src}</span>${d.latency ? `<span class="tag">${d.latency} ms</span>` : ""}<span class="tag">plans ${d.plans}${d.stale ? ` · stale ${d.stale}` : ""}</span>${d.thinking ? "<span class='tag'>thinking…</span>" : ""}</h3>
@@ -262,15 +268,17 @@ function renderTraining() {
 function renderMoves() {
   const char = game.world.fighters[0].char;
   const rows = [];
-  for (const slot of ATTACK_SLOTS) {
+  for (const slot of slotsOf(char)) {
     const walk = (m, keys, depth) => {
       rows.push(`<tr class="${depth ? "chain" : ""}"><td class="k">${keys}</td><td>${depth ? "↳ " : ""}${frameLine(m)}</td></tr>`);
-      for (const [s, id] of Object.entries(m.cancels ?? {})) walk(char.moves[id], `${keys} ${KEY_FOR[s]}`, depth + 1);
+      for (const [s, id] of Object.entries(m.cancels ?? {})) walk(char.moves[id], `${keys} ${keyFor(s)}`, depth + 1);
+      if (m.parry) walk(char.moves[m.parry.riposte], "auto", depth + 1);
     };
-    walk(starter(char, slot), KEY_FOR[slot], 0);
+    walk(starter(char, slot), keyFor(slot), 0);
   }
-  $("moves").innerHTML = `<h3 style="margin:0 0 6px;font-size:12px;color:var(--muted)">${char.name} · ${char.title}</h3><table class="mono">${rows.join("")}</table>
-    <div class="log" style="margin-top:6px">i = startup frames · on block: + you recover first, ≤ −10 punishable</div>`;
+  $("moves").innerHTML = `<h3 style="margin:0 0 6px;font-size:12px;color:var(--muted)">${char.name} · ${char.title}</h3>
+    <div class="log" style="margin:0 0 6px;color:var(--text)">${char.signature}</div><table class="mono">${rows.join("")}</table>
+    <div class="log" style="margin-top:6px">→/← = hold toward/away (D/A) while pressing · i = startup frames · on block: + you recover first, ≤ −10 punishable</div>`;
 }
 
 // ---- global keys -------------------------------------------------------------------

@@ -7,16 +7,29 @@
 
 export const ATTACK_SLOTS = ["light", "heavy", "low", "special", "throw"];
 
+// Directional variants: holding forward/back while pressing a button. A character may
+// define e.g. `fwd_heavy`; if not, the press falls back to the plain button.
+export const DIRECTIONS = ["fwd", "back"];
+export const baseSlot = (slot) => slot.replace(/^(fwd|back)_/, "");
+
+/** All slots this character defines (plain buttons first). */
+export const slotsOf = (char) => Object.keys(char.slots);
+
+/** The move a button press resolves to (directional variant, else the plain button). */
+export const moveIdFor = (char, slot) => char.slots[slot] ?? char.slots[baseSlot(slot)];
+
 export const totalFrames = (m) => m.startup + m.active + m.recovery;
 
 /** Frame advantage if blocked on the first active frame (negative = attacker recovers later). */
 export const blockAdvantage = (m) =>
-  m.level === "throw" ? -Infinity : m.blockstun - (m.active + m.recovery);
+  !isStrike(m) ? -Infinity : m.blockstun - (m.active + m.recovery);
 
-export const starter = (char, slot) => char.moves[char.slots[slot]];
+export const starter = (char, slot) => char.moves[moveIdFor(char, slot)];
 
-/** Button starters that are strikes (not throws). */
-export const strikes = (char) => ATTACK_SLOTS.map((s) => starter(char, s)).filter((m) => m.level !== "throw");
+export const isStrike = (m) => m.level !== "throw" && !m.parry;
+
+/** Button starters that are strikes (not throws or parries). */
+export const strikes = (char) => slotsOf(char).map((s) => starter(char, s)).filter(isStrike);
 
 export const fastestStrike = (char) => strikes(char).reduce((a, b) => (b.startup < a.startup ? b : a));
 
@@ -36,6 +49,7 @@ const LEVEL_WORDS = {
   mid: "mid attack (hits crouching opponents, blocked by standing guard)",
   low: "low attack (beats standing guard, blocked by crouching guard)",
   throw: "throw (beats any guard, misses crouching or sidestepping opponents, can be broken)",
+  parry: "parry stance (deflects high and mid attacks and answers with a free riposte; lows and throws beat it, very punishable if nothing comes)",
 };
 
 export function speedWord(startup) {
@@ -55,14 +69,16 @@ export function reachWord(range) {
 export function safetyWord(m) {
   const adv = blockAdvantage(m);
   if (m.level === "throw") return "leaves you open if it misses";
+  if (m.parry) return "very punishable if the opponent does not attack";
   if (adv >= -5) return "safe if blocked";
   if (adv >= -9) return "slightly unsafe if blocked";
   return "punishable if blocked";
 }
 
 export function describeMove(m, char) {
-  const parts = [LEVEL_WORDS[m.level], speedWord(m.startup)];
-  if (m.level !== "throw") {
+  const parts = [LEVEL_WORDS[m.level]];
+  if (!m.parry) parts.push(speedWord(m.startup));
+  if (isStrike(m)) {
     parts.push(reachWord(m.range));
     parts.push(m.tracking ? "tracks sidesteps" : "straight line, can be sidestepped");
   }
@@ -70,7 +86,10 @@ export function describeMove(m, char) {
   if (m.launch) parts.push("launches into a juggle combo");
   else if (m.launchOnCounter) parts.push("launches on counter-hit");
   if (m.knockdown) parts.push("knocks down");
-  if (m.advance) parts.push("lunges forward");
+  if (m.advance > 0) parts.push("lunges forward");
+  if (m.advance < 0) parts.push("steps back while attacking");
+  if (m.armor) parts.push("armored: absorbs one high or mid hit during the swing, but lows and throws go through");
+  if (m.tipper) parts.push("hits much harder with the tip at full reach, weak point blank");
   if (char && m.cancels) {
     const chain = stringFrom(char, m.id).slice(1);
     if (chain.length) parts.push(`continues into ${chain.map((x) => `${x.name} (${x.level})`).join(" then ")}`);
@@ -81,6 +100,8 @@ export function describeMove(m, char) {
 /** Compact frame-data line for the training HUD. */
 export function frameLine(m) {
   if (m.level === "throw") return `${m.name}  i${m.startup}  throw  ${m.damage}dmg`;
+  if (m.parry) return `${m.name}  parries hi/mid f${m.startup}-${m.startup + m.active - 1}  ${m.recovery}f recovery`;
   const adv = blockAdvantage(m);
-  return `${m.name}  i${m.startup}  ${m.level}  ${m.damage}dmg  ${adv >= 0 ? "+" : ""}${adv} on block`;
+  const tags = [m.armor && "armor", m.tipper && "tipper", m.tracking && "tracks", m.launch && "launch"].filter(Boolean);
+  return `${m.name}  i${m.startup}  ${m.level}  ${m.damage}dmg  ${adv >= 0 ? "+" : ""}${adv} on block${tags.length ? `  [${tags.join(", ")}]` : ""}`;
 }

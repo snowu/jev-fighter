@@ -88,14 +88,15 @@ test("sidestep dodges a straight attack but not a tracking one", () => {
   assert.equal(of(ev, "hit").length, 0);
   assert.equal(of(ev, "whiff")[0]?.move, "overhead");
   w = arena(sen, kara, 1.4);
-  ev = run(w, 70, (i) => [{ sidestep: i === 0 ? 1 : 0 }, { attack: i === 0 ? "special" : null }]);
+  // Whirlwind (i18, tracking) catches Sen in the middle of her sidestep.
+  ev = run(w, 70, (i) => [{ sidestep: i === 8 ? 1 : 0 }, { attack: i === 0 ? "special" : null }]);
   assert.equal(of(ev, "hit")[0]?.move, "whirlwind");
 });
 
 test("hitting during startup is a counter-hit with bonus damage", () => {
   const w = arena(sen, kara, 1.3);
-  // Kara starts the slow overhead; Sen's quick draw lands during its startup.
-  const ev = run(w, 40, (i) => [{ attack: i === 2 ? "light" : null }, { attack: i === 0 ? "heavy" : null }]);
+  // Kara starts the slow Whirlwind; Sen's quick draw lands during its startup.
+  const ev = run(w, 40, (i) => [{ attack: i === 2 ? "light" : null }, { attack: i === 0 ? "special" : null }]);
   const hit = of(ev, "hit")[0];
   assert.equal(hit.who, 0);
   assert.equal(hit.counter, true);
@@ -115,11 +116,11 @@ test("launcher into juggle: extra hits keep the opponent airborne and count as a
 test("blocking a punishable move lets the defender punish during recovery", () => {
   const w = arena(sen, kara, 1.5);
   // Kara overhead (-16 on block) at max range: pushback puts Sen out of jab range, so she punishes with the lunge.
-  const ev = run(w, 80, (i) => [{ attack: i > 26 && i < 60 ? "special" : null }, { attack: i === 0 ? "heavy" : null }]);
+  const ev = run(w, 80, (i) => [{ attack: i > 26 && i < 60 ? "fwd_heavy" : null }, { attack: i === 0 ? "heavy" : null }]);
   const block = of(ev, "block")[0];
   assert.equal(block.advantage, blockAdvantage(kara.moves.overhead));
   const punish = of(ev, "hit").find((h) => h.who === 0);
-  assert.ok(punish?.punish, "Sen's jab should land as a whiff/recovery punish");
+  assert.ok(punish?.punish, "Sen's Iai Lunge should land as a recovery punish");
 });
 
 test("repeated blocking breaks the guard", () => {
@@ -133,4 +134,100 @@ test("rounds end on KO and the match ends at two wins", () => {
   const ev = run(w, 3000);
   assert.equal(of(ev, "round_end").length >= 2, true);
   assert.equal(w.phase, "over");
+});
+
+// ---- character signatures ------------------------------------------------------------
+
+test("directional presses pick the variant, and fall back to the plain button", () => {
+  let w = arena(sen, kara, 1.5);
+  assert.equal(of(run(w, 5, (i) => [{ attack: i === 0 ? "fwd_heavy" : null }, {}]), "attack_start")[0].move, "iai");
+  w = arena(sen, kara, 1.5);
+  assert.equal(of(run(w, 5, (i) => [{ attack: i === 0 ? "fwd_light" : null }, {}]), "attack_start")[0].move, "draw");
+  // A held direction must not stop a throw break.
+  w = arena(kara, sen, 0.8);
+  const ev = run(w, 80, (i) => [{ attack: i === 0 ? "throw" : null }, { attack: i === 18 ? "back_throw" : null }]);
+  assert.equal(of(ev, "tech").length, 1);
+});
+
+test("Kara's armor absorbs one high/mid hit and the swing still lands; a low goes through", () => {
+  let w = arena(sen, kara, 1.3);
+  // Sen jabs into the armored Overhead Cleave.
+  let ev = run(w, 50, (i) => [{ attack: i === 2 ? "light" : null }, { attack: i === 0 ? "heavy" : null }]);
+  const armor = of(ev, "armor")[0];
+  assert.ok(armor, "jab should be absorbed");
+  assert.equal(armor.damage, Math.round(sen.moves.draw.damage * 0.5));
+  assert.equal(of(ev, "hit").find((h) => h.who === 1)?.move, "overhead");
+  // Only one hit is absorbed per swing: once spent, the next hit is a normal counter-hit.
+  w = arena(sen, kara, 1.3);
+  ev = run(w, 50, (i) => {
+    if (i === 1) w.fighters[1].armorUsed = true;
+    return [{ attack: i === 2 ? "light" : null }, { attack: i === 0 ? "heavy" : null }];
+  });
+  assert.equal(of(ev, "armor").length, 0);
+  assert.equal(of(ev, "hit")[0]?.counter, true);
+  // Lows go straight through armor.
+  w = arena(sen, kara, 1.3);
+  ev = run(w, 50, (i) => [{ attack: i === 2 ? "low" : null }, { attack: i === 0 ? "heavy" : null }]);
+  assert.equal(of(ev, "armor").length, 0);
+  assert.equal(of(ev, "hit")[0]?.who, 0);
+});
+
+test("Kara's rage: below a third of her health she hits harder", () => {
+  const w = arena(kara, sen, 1.2);
+  w.fighters[0].hp = 30;
+  const ev = run(w, 40, (i) => [{ attack: i === 0 ? "light" : null }, { move: 1 }]);
+  assert.equal(of(ev, "hit")[0].damage, Math.round(kara.moves.jab.damage * kara.traits.rage.damage));
+});
+
+test("Sen's parry deflects a mid into a guaranteed launching riposte, but loses to lows", () => {
+  let w = arena(sen, kara, 1.5);
+  // Kara's overhead becomes active on frame 22; Sen parries on frame 10 (window frames 4-21 of the stance).
+  let ev = run(w, 120, (i) => [{ attack: i === 10 ? "special" : null }, { attack: i === 0 ? "heavy" : null }]);
+  assert.equal(of(ev, "parry").length, 1);
+  const riposte = of(ev, "hit").find((h) => h.move === "riposte");
+  assert.ok(riposte, "riposte should land");
+  assert.equal(riposte.counter, true);
+  assert.equal(riposte.result, "launch");
+  // A low under the stance hits normally.
+  w = arena(sen, kara, 1.5);
+  ev = run(w, 60, (i) => [{ attack: i === 0 ? "special" : null }, { attack: i === 0 ? "low" : null }]);
+  assert.equal(of(ev, "parry").length, 0);
+  assert.equal(of(ev, "hit")[0]?.who, 1);
+  // A parry that catches nothing whiffs, and its recovery is punishable.
+  w = arena(sen, kara, 1.2);
+  assert.equal(of(run(w, 60, (i) => [{ attack: i === 0 ? "special" : null }, {}]), "whiff")[0]?.parry, true);
+  w = arena(sen, kara, 1.2);
+  ev = run(w, 80, (i) => [{ attack: i === 0 ? "special" : null }, { attack: i === 26 ? "light" : null }]);
+  assert.equal(of(ev, "hit")[0]?.punish, true);
+});
+
+test("Tove's spear: tip hits harder and stuns longer than a point-blank hit", () => {
+  const poke = (gap) => {
+    const w = arena(tove, kara, gap);
+    return of(run(w, 40, (i) => [{ attack: i === 0 ? "light" : null }, { crouch: true }]), "hit")[0];
+  };
+  const tip = poke(2.1), mid = poke(1.3), sour = poke(0.75);
+  assert.equal(tip.tip, "tip");
+  assert.equal(mid.tip, null);
+  assert.equal(sour.tip, "sour");
+  assert.ok(tip.damage > mid.damage && mid.damage > sour.damage, `${tip.damage} > ${mid.damage} > ${sour.damage}`);
+  assert.ok(tip.advantage > mid.advantage);
+});
+
+test("Tove's Retreating Thrust backs her away while it hits", () => {
+  const w = arena(tove, kara, 1.4);
+  const x0 = w.fighters[0].x;
+  const ev = run(w, 16, (i) => [{ attack: i === 0 ? "back_light" : null }, {}]);
+  assert.equal(of(ev, "attack_start")[0].move, "retreat");
+  assert.ok(w.fighters[0].x < x0 - 0.6);
+});
+
+test("heavy fighters fall out of juggles faster than light ones", () => {
+  const launchDuration = (target) => {
+    const w = arena(sen, target, 1.5);
+    const ev = runCombo(w, 60, presser(["low", "heavy"])); // Ankle Slice -> Heaven Slash launch
+    assert.equal(of(ev, "hit")[1]?.result, "launch");
+    return w.fighters[1].duration;
+  };
+  assert.ok(launchDuration(kara) < launchDuration(tove));
 });

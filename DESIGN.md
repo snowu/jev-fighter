@@ -109,23 +109,56 @@ always face each other and can circle with sidesteps.
   sidestepping opponents.
 - **Wake-up**: stand up guarding, roll, or a wake-up attack (punishable).
 
-Characters (`public/engine/roster/`): **Kara** (axe berserker: slow, heavy, long reach),
-**Sen** (katana duelist: fast, safe, punishes), **Tove** (spear lancer: long pokes, weak up
-close). Each has 5 buttons, 1–2 strings and a launcher.
+- **Directional moves**: holding forward or back while pressing a button picks a variant
+  (`slots.fwd_heavy`, `slots.back_light`…). If the character has no variant, the press falls
+  back to the plain button. Each character has 7 starters plus strings.
 
-**Balance check** (`npm run sim -- --equal-skill --matches 30`, same reflexes for everyone):
-every matchup lands between 40% and 60%, with 25–50 s rounds, ~15 hits, 4–13 blocks, 3–5
-counter-hits and 1–2 punishes per round, and combos up to 6 hits.
+### Characters and their signatures
+
+Each character has one mechanic that changes how the matchup is played. These are opt-in move
+flags and `traits` in the roster file, so new characters can reuse or combine them.
+
+| | Kara, Axe Berserker | Sen, Katana Duelist | Tove, Spear Lancer |
+|---|---|---|---|
+| Signature | **Armor** (`armor`): Overhead Cleave and Bull Rush absorb one high or mid hit (taking half its damage) and land anyway. Lows and throws go through. **Rage** (`traits.rage`): ×1.2 damage below ⅓ health. | **Parry** (`parry: { riposte }`): Mirror Stance deflects any high or mid hit; the attacker staggers and an auto riposte launches them. Lows and throws beat it, and a whiffed stance is very punishable. | **Tipper** (`tipper`): hitting with the outer ~30% of the reach does ×1.3 damage, +6 hitstun and extra push. Point blank does ×0.75. |
+| Body | 110 hp, slow walk, clumsy sidestep, heavy (`juggleFloat` 0.85: falls out of juggles fast) | 95 hp, fastest sidestep and dash | 100 hp, long backdash, light (`juggleFloat` 1.1: floats longer in juggles) |
+| Directional moves | →K Bull Rush (armored lunge), ←K Ground Splitter (slow, huge low) | →K Iai Lunge (long-range punisher, i14), ←J Sheathing Cut (hits while stepping back) | →K Long Lunge (2.5 m reach), ←J Retreating Thrust (keep-out) |
+| Countered by | lows, throws, and fast jabs after the armor is spent | lows and throws, or simply not attacking | getting in close |
+
+The AI learns these as well. Each fighter's `signature` text is sent to Jev as `your_style`
+and `opponent_style`. The *if attacked* question gains `parry` or `armor_through` options when
+the move set has them. The opponent model counts "they parried / armored through N of your
+attacks". Spot checks against the live model:
+- Sen facing a Kara who only swings mids parries 93% of the time.
+- Sen facing a Kara who throws a lot crouches 70% of the time instead.
+- Tove facing a Sen who keeps parrying picks low attacks 83% of the time.
+- Kara facing mid pokes splits between guarding and armoring through.
+
+The reflexes time a parry so its window covers the incoming hit, and turn a read low or throw
+into a crouch instead of a parry or armor swing.
+
+**Balance check** (`npm run sim -- --equal-skill --matches 60 --detail`: sides alternate, and
+everyone gets the same reflexes):
+- Every matchup lands between 47% and 53%, except Sen vs Tove at 63/37. That's an intended
+  counter: Sen's parry eats Tove's mid pokes until Tove switches to lows, which is exactly the
+  adjustment Jev makes.
+- Rounds last 22–52 s, with ~15 hits per round.
+- Kara armors ~1 hit and enrages in ~80% of rounds. Tove lands ~3 tippers per round. Sen
+  parries ~0.6 times per round against Kara and ~1.2 against Tove.
+- `--detail` also prints the top damage sources per side, for spotting a dominant move.
 
 ## Status and next steps
 
-Done: probe, grey-box with full combat, three characters, Jev and local brains, AI mind
-panel, training mode, headless sim, tests.
+Done: probe, grey-box with full combat, three characters with distinct signatures
+(armor/rage, parry, tipper) and directional moves, Jev and local brains, AI mind panel,
+training mode, headless sim with per-side detail, 17 tests.
 
 Next:
 - **Feel pass from real play**: tune walk speeds, pushback, hitstop and AI reaction times
   against a human.
-- **Directional moves** (forward/back/down + button) to grow each move list toward ~12 moves.
+- **More moves**: down + button, and more strings per directional starter (toward ~12 moves each).
+- **More signatures** for new characters, e.g. stances, projectiles, a meter-based super, or
+  wall interactions.
 - **Rigged models and animations** (Mixamo / Quaternius). The renderer only reads the sim, so
   this doesn't touch combat or AI.
 - **Jev experiments**: per-round "game plan" questions, confidence-gated hesitation and

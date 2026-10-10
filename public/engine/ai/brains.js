@@ -6,8 +6,9 @@
 
 import { normalize } from "./sampling.js";
 import { describeSituation } from "./perception.js";
-import { buildQuestions, TACTICS } from "./questions.js";
-import { ATTACK_SLOTS, starter } from "../sim/moves.js";
+import { buildQuestions, TACTICS, attackSlots, incomingOptions } from "./questions.js";
+import { starter } from "../sim/moves.js";
+import { enraged } from "../sim/world.js";
 
 export class LocalBrain {
   constructor() { this.name = "local"; }
@@ -34,17 +35,22 @@ export class LocalBrain {
     tactics.circle *= 1 + t.highAttacks;
 
     const attack = {};
-    for (const slot of ATTACK_SLOTS) {
-      const lvl = starter(me.char, slot).level;
-      let w = slot === "light" ? 1.5 : 1;
-      if (lvl === "low") w *= 1 + 2 * t.standGuard;
+    for (const slot of attackSlots(me.char)) {
+      const m = starter(me.char, slot);
+      const lvl = m.level;
+      let w = slot === "light" ? 1.5 : slot.includes("_") ? 0.7 : 1;
+      if (lvl === "low") w *= 1 + 2 * t.standGuard + 2 * t.parries + 1.5 * t.armors;
       if (lvl === "mid") w *= 1 + 2 * t.crouchGuard;
-      if (lvl === "throw") w *= 0.6 + 2 * t.standGuard;
+      if (lvl === "throw") w *= 0.6 + 2 * t.standGuard + 1.5 * t.parries;
       if (lvl === "high") w *= 1 - 0.7 * t.crouchGuard;
+      if (lvl === "high" || lvl === "mid") w *= 1 - 0.6 * t.parries;
+      if (m.armor) w *= 1 + 1.5 * t.highAttacks;
       attack[slot] = w;
     }
 
-    const incoming = { ...L.incoming };
+    const incoming = Object.fromEntries(Object.keys(incomingOptions(me.char)).map((k) => [k, L.incoming[k] ?? 0.5]));
+    if (incoming.parry) incoming.parry *= 1 + 2 * (1 - t.lowAttacks - t.throws);
+    if (incoming.armor_through) incoming.armor_through *= Math.max(0.2, 1 + 2 * t.highAttacks - t.lowAttacks);
     incoming.crouch_guard *= 1 + 2 * (t.lowAttacks + t.throws + t.highAttacks * 0.5);
     incoming.stand_guard *= 1 + 1.5 * (1 - t.lowAttacks);
     const afterBlocked = { ...L.afterBlocked };
@@ -53,6 +59,7 @@ export class LocalBrain {
 
     let aggression = L.aggression;
     if (reckless && hp < 0.4) aggression += 0.15;
+    if (enraged(me)) { aggression += 0.15; tactics.pressure *= 1.5; }
     if (!reckless && hp < oppHp - 0.2) aggression += 0.1;
     if (world.roundFrames < 600 && hp < oppHp) aggression += 0.2;
 

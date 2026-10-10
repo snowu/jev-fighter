@@ -2,7 +2,7 @@
 // "Now" answers drive the tactic; contingency answers are cached so the reflex
 // layer can react instantly when the event actually happens.
 
-import { ATTACK_SLOTS, starter, describeMove } from "../sim/moves.js";
+import { slotsOf, starter, describeMove } from "../sim/moves.js";
 import { shuffled } from "./sampling.js";
 
 export const TACTICS = {
@@ -23,6 +23,27 @@ export const INCOMING = {
   backdash: "Dash backwards out of range",
   counter_attack: "Attack first with the fastest move (wins if the opponent's attack is slow, trades or loses if it is fast)",
 };
+
+// Signature reactions, offered only to fighters whose move set has them.
+const SIGNATURE_INCOMING = {
+  parry: "Parry it (deflects a high or mid attack into a free riposte; gets hit by low attacks and throws, and badly punished if the attack never comes)",
+  armor_through: "Swing an armored attack through it (absorbs one high or mid hit and lands anyway; low attacks and throws beat it)",
+};
+
+/** Slots the AI may pick as attacks (parry stances are a defensive reaction, not an attack). */
+export const attackSlots = (char) => slotsOf(char).filter((s) => !starter(char, s).parry);
+
+/** Slot of the fighter's parry stance or armored strike, if any. */
+export const parrySlot = (char) => slotsOf(char).find((s) => starter(char, s).parry) ?? null;
+export const armorSlots = (char) => slotsOf(char).filter((s) => starter(char, s).armor);
+
+/** Reactions available to this fighter when attacked. */
+export function incomingOptions(char) {
+  const out = { ...INCOMING };
+  if (parrySlot(char)) out.parry = SIGNATURE_INCOMING.parry;
+  if (armorSlots(char).length) out.armor_through = SIGNATURE_INCOMING.armor_through;
+  return out;
+}
 
 export const AFTER_BLOCKED = {
   keep_attacking: "Continue the string or attack again right away (beats an opponent who presses buttons late, loses to a faster interruption or a duck)",
@@ -46,7 +67,7 @@ const choice = (instructions, options, rng) => ({
 });
 
 export function buildQuestions(char, rng) {
-  const moves = Object.fromEntries(ATTACK_SLOTS.map((slot) => [slot, describeMove(starter(char, slot), char)]));
+  const moves = Object.fromEntries(attackSlots(char).map((slot) => [slot, describeMove(starter(char, slot), char)]));
   return {
     tactic: choice(
       "Considering the fighter's personality, the situation and the opponent's habits, which plan does the fighter follow for the next couple of seconds?",
@@ -67,7 +88,7 @@ export function buildQuestions(char, rng) {
     },
     incoming: choice(
       "If the opponent starts an attack at the fighter right now, how does the fighter react? Consider which attacks the opponent tends to use.",
-      INCOMING, rng),
+      incomingOptions(char), rng),
     after_blocked: choice(
       "If the fighter's attack gets blocked, what does it do next? Consider how the opponent reacts after blocking.",
       AFTER_BLOCKED, rng),
