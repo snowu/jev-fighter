@@ -47,6 +47,11 @@ weapons put the off hand on the weapon's final position each frame, sliding alon
 wide swings it lets go to a fist at the chest. `tools/rig.test.mjs` checks the solver on ~320
 random grips per run.
 
+**Swing tuner** (`node tools/tune-swings.mjs [--write] [char.move ...]`): for each attack that
+fails the lab checks, it searches its wind-up, arc span, hip turn and step. It keeps the variant
+with the fewest failing frames whose strike still lands, never trades in a new kind of failure,
+and prefers values close to the current feel. `--write` updates the roster files.
+
 **Known issues** (`tools/anim-known.json`): animation-check failures accepted for now, mostly
 wind-up frames of a few swings where these short-armed mannequins can't hold the planned path.
 New failures fail `npm test` (and block deploys), and fixed ones must be removed, so the list only

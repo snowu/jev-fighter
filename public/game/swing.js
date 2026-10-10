@@ -16,6 +16,8 @@
 import * as THREE from "three";
 import { HumanoidRig } from "./rig.js";
 
+const TORSO_CLEARANCE = 0.22; // grips (fist centres) stay this far out from the spine's axis
+const GRIP_TOLERANCE = 0.42; // ~24°: how far a held shaft may sit off the fist's grip axis
 export const HEIGHT = { high: 1.42, mid: 1.1, low: 0.38 }; // face, chest, shins
 
 // Per-shape defaults. windup: how far back the weapon is drawn (1 = shape's natural wind-up);
@@ -274,8 +276,8 @@ export class SwingRig {
     const onAxis = (p) => a.clone().addScaledVector(ab, Math.min(1, Math.max(0, v().subVectors(p, a).dot(ab) / ab.lengthSq())));
     const g = grip.clone();
     const fromAxis = v().subVectors(g, onAxis(g));
-    this.lastPushed = fromAxis.length() < 0.22;
-    if (this.lastPushed) g.addScaledVector(this.forwardW, Math.max(0, 0.22 - fromAxis.dot(this.forwardW)));
+    this.lastPushed = fromAxis.length() < TORSO_CLEARANCE;
+    if (this.lastPushed) g.addScaledVector(this.forwardW, Math.max(0, TORSO_CLEARANCE - fromAxis.dot(this.forwardW)));
     const shoulder = arm.upper.getWorldPosition(v());
     const outward = v().subVectors(shoulder, onAxis(shoulder)).normalize();
     const pole = outward.multiplyScalar(0.9).addScaledVector(ab.clone().normalize(), -0.8).addScaledVector(this.forwardW, 0.25).normalize();
@@ -386,7 +388,8 @@ export class SwingRig {
     const dirSign = shape === "backslash" ? -1 : 1;
     // The chest turns with horizontal arcs (keeps the arms in front of it instead of wrapping
     // across the body); vertical shapes just use the hip coil.
-    const arc = tune.span && /slash|sweep|spin/.test(shape) ? tune.span * 0.4 : 0;
+    // (Spins already turn the whole body, so their chest coil stays small.)
+    const arc = tune.span && /slash|sweep/.test(shape) ? tune.span * 0.4 : 0;
     const coil = Math.max(-1.1, Math.min(1.1, (tune.hips + arc) * s)) * k0 * dirSign;
     const up = axis(0, 1, 0), side = axis(0, 0, 1);
     this.turn(this.pelvis, up, coil * 0.4); // hips lead a little; the chest does most of the turning
@@ -406,7 +409,7 @@ export class SwingRig {
     if (hand.x < minHand && shape === "thrust") { len = Math.max(0.25, tip.x - minHand); hand = v().copy(tip).addScaledVector(dir, -len); }
 
     // Lunge further if the shoulder still can't reach the grip.
-    const shortfall = Math.min(0.8, Math.max(0, hand.distanceTo(shoulderG) - reach)) * w; // smooth in the swing phase: no pops
+    const shortfall = Math.min(1.0, Math.max(0, hand.distanceTo(shoulderG) - reach)) * w; // smooth in the swing phase: no pops
     if (shortfall > 0) { holder.position.x += shortfall; holder.updateMatrixWorld(true); }
     const lunge = holder.position.x;
     // Still out of reach (big wind-ups above/behind the head, deep low sweeps)? Keep the planned
@@ -438,9 +441,21 @@ export class SwingRig {
     const reached = frame.worldToLocal(this.grip(this.right, toWorld(hand), dirW));
     // Hand first: if the grip wasn't reachable the weapon goes where the fist is, along the
     // fist's axis, so the hand never lets go (the strike check still holds the tip to the hit).
-    // If the grip wasn't fully reachable the weapon keeps the swing's direction and sits in the fist
-    // as reached (the wrist limit costs a little grip angle, not the strike).
+    // If the fist couldn't line up with the planned shaft (wrist at its limit), turn the weapon
+    // towards the fist's axis just enough to sit within a natural grip angle. Wind-ups and
+    // follow-throughs absorb this invisibly; at the hit frame the lab's strike check guards it.
     hand.copy(reached);
+    if (!this.body.lastReached) {
+      const g = this.body.gripFrame(this.body.arms.r);
+      const axisG = frame.worldToLocal(g.center.clone().add(g.axis)).sub(frame.worldToLocal(g.center.clone())).normalize();
+      if (axisG.dot(dir) < 0) axisG.negate();
+      const across = dir.angleTo(axisG);
+      if (across > GRIP_TOLERANCE) {
+        const t = (across - GRIP_TOLERANCE) / across;
+        dir.lerp(axisG, t).normalize(); // close enough to a slerp for these angles
+        dirW.copy(toWorld(v().copy(dir)).sub(frame.localToWorld(v())).normalize());
+      }
+    }
     tip.copy(hand).addScaledVector(dir, len);
 
 

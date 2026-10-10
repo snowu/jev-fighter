@@ -12,16 +12,16 @@ export default {
     build: [0.94, 1.05], trim: 0x6b5233, accent: 0x1d4634, weapon: "spear", weaponLength: 2.2,
     parts: ["hood", "cloak"],
     swings: {
-      trip: { shape: "thrust", windup: 0.5, step: 0.2, hips: 0.2 }, // grab: a quick reach in
-      poke: { shape: "thrust", windup: 0.85, step: 0.1, hips: 0.2 }, // keep-away poke: barely commits
-      poke2: { shape: "thrust", windup: 0.8, step: 0.12, hips: 0.2 },
-      tailsweep: { shape: "sweep", windup: 0.6, step: 0.15 },
-      arc: { shape: "sweep", windup: 0.8, step: 0.2, hips: 0.55 },
-      footstab: { shape: "thrust", windup: 0.9, step: 0.15 },
-      vault: { shape: "thrust", windup: 0.8, step: 0.45, drop: -0.04 }, // spear-braced vault: a driving thrust
-      lunge: { shape: "thrust", windup: 1.4, step: 0.65, drop: 0.1, lean: 0.3 }, // full-extension lunge
+      trip: { shape: "thrust", windup: 0.8, step: 0.2, hips: 0.2 }, // grab: a quick reach in
+      poke: { shape: "thrust", windup: 0.8, step: 0.1, hips: 0.5 }, // keep-away poke: barely commits
+      poke2: { shape: "thrust", windup: 0.8, step: 0.12, hips: 0.5 },
+      tailsweep: { shape: "sweep", windup: 0.6, step: 0.15, hips: 0.15, span: 1.5 },
+      arc: { shape: "sweep", windup: 0.8, step: 0.2, hips: 0.55, span: 1.5 },
+      footstab: { shape: "thrust", windup: 0.3, step: 0.3, hips: 0.15 },
+      vault: { shape: "thrust", windup: 0.3, step: 0.45, drop: -0.04, hips: 0.15 }, // spear-braced vault: a driving thrust
+      lunge: { shape: "thrust", windup: 1.4, step: 0.65, drop: 0.1, lean: 0.3, hips: 0.15 }, // full-extension lunge
       retreat: { shape: "thrust", windup: 0.6, step: -0.35 },
-      wakeup: "thrust",
+      wakeup: { shape: "thrust", windup: 0.8, hips: 0.3, step: 0.45 },
     },
   },
 

@@ -28,6 +28,7 @@ export function airborneHeight(f) {
   const t = Math.min(1, f.frame / f.duration);
   return 4 * 1.35 * (f.duration / JUGGLE_FRAMES) * t * (1 - t) + 0.05;
 }
+const SPIN_BODY = 0.8; // share of a spin's arc the whole body turns through
 export const GROUNDED_LOW = new Set(["knockdown", "ko", "roll", "juggle", "grabbed"]); // states whose clips can sink into the floor
 
 // Moment of impact (seconds) for the few clip-driven attacks (throws); strikes are procedural (swing.js).
@@ -51,7 +52,7 @@ const GUARDS = {
   katana: { stand: { hand: [0.42, -0.12, 0.06], dir: [0.82, 0.55, -0.12] }, high: { hand: [0.38, 0.22, 0.12], dir: [0.3, 0.35, -0.89] }, low: { hand: [0.4, -0.38, 0.08], dir: [0.45, -0.45, -0.77] }, offHand: 0.14 },
   axe: { stand: { hand: [0.4, -0.18, 0.08], dir: [0.45, 0.86, -0.2] }, high: { hand: [0.38, 0.2, 0.12], dir: [0.3, 0.3, -0.9] }, low: { hand: [0.4, -0.38, 0.08], dir: [0.4, -0.5, -0.77] }, offHand: -0.32 },
   // Spear: the off (lead) hand sits forward on the shaft, so offHand is negative.
-  spear: { stand: { hand: [0.3, -0.15, 0.1], dir: [0.97, 0.22, -0.06] }, high: { hand: [0.38, 0.2, 0.12], dir: [0.3, 0.3, -0.9] }, low: { hand: [0.4, -0.35, 0.08], dir: [0.75, -0.22, -0.62] }, offHand: -0.26 },
+  spear: { stand: { hand: [0.3, -0.15, 0.1], dir: [0.97, 0.22, -0.06] }, high: { hand: [0.4, 0.08, 0.1], dir: [0.35, 0.25, -0.9] }, low: { hand: [0.4, -0.35, 0.08], dir: [0.75, -0.22, -0.62] }, offHand: -0.26 },
 };
 
 // Clips for every non-attack state.
@@ -302,7 +303,18 @@ export class FighterModel {
         if (m.parry) return loop(S.idle); // stance + the raised "high" guard (the library's block clip faces backwards)
         const swing = this.look.swings?.[m.id];
         // Procedural swings stand on the idle (or crouch) stance; the rig poses the upper body.
-        if (swing) return { ...loop(S.idle), crouch: m.level === "low" ? 0.85 : 0, swing };
+        if (swing) {
+          const out = { ...loop(S.idle), crouch: m.level === "low" ? 0.85 : 0, swing };
+          // Spins turn the whole body with the weapon (arms stay in front of the chest) instead of
+          // wrapping the arms round a still torso.
+          const tune = this.tuning(m, swing);
+          if (tune.shape === "spin") {
+            const { s, w } = swingPhase(m, f.frame, tune);
+            const th = s < 0 ? s * tune.span : s * tune.span * 0.55;
+            out.yaw = SPIN_BODY * th * (this.rig.sideK ?? 1) * w;
+          }
+          return out;
+        }
         const name = this.look.moves?.[m.id] ?? "Melee_Hook";
         return { name, time: this.attackTime(name, m, f.frame) };
       }

@@ -11,20 +11,20 @@ export default {
   // Renderer-only: silhouette and weapon shape (the sim never reads this).
   // Renderer-only: silhouette, colours, weapon and clip per move (the sim never reads this).
   look: {
-    build: [1.12, 1.04], trim: 0x3b2618, accent: 0x4a4f57, weapon: "axe", weaponLength: 1.25,
+    build: [1.12, 1.04], trim: 0x3b2618, accent: 0x4a4f57, weapon: "axe", weaponLength: 1.6,
     parts: ["horned_helm", "fur_mantle"],
     // Procedural swing shape per move (public/game/swing.js); moves without one (throws) use clips.
     swings: {
-      headbutt: { shape: "thrust", windup: 0.5, step: 0.25, hips: 0.2 }, // grab: a quick reach in
+      headbutt: { shape: "thrust", windup: 0.8, step: 0.25, hips: 0.2 }, // grab: a quick reach in
       jab: { shape: "thrust", windup: 0.6, step: 0.12 }, // haft jab: short, no commitment
       jab2: { shape: "thrust", windup: 0.7, step: 0.15 },
-      finisher: { shape: "slash", windup: 0.8, step: 0.3, hips: 0.55 },
-      overhead: { shape: "chop", windup: 1.8, step: 0.42, drop: 0.22, lean: 0.4 }, // big telegraphed cleave
+      finisher: { shape: "slash", windup: 0.8, step: 0.3, hips: 0.5, span: 1.5 },
+      overhead: { shape: "chop", windup: 1, step: 0.42, drop: 0.22, lean: 0.4, hips: 0.12 }, // big telegraphed cleave
       shin: { shape: "sweep", windup: 1.2, step: 0.25 },
-      lift: { shape: "rising", windup: 0.9, step: 0.2 },
-      whirlwind: { shape: "spin", windup: 0.6, hips: 0.85, step: 0.12, span: 2.1 },
+      lift: { shape: "rising", windup: 0.45, step: 0.2, hips: 0.15 },
+      whirlwind: { shape: "spin", windup: 0.9, hips: 0.5, step: 0.12, span: 2 },
       bullrush: { shape: "thrust", windup: 0.5, step: 0.55, drop: 0.08, lean: 0.3 }, // shoulder-first charge
-      splitter: { shape: "chop", windup: 1.9, step: 0.35, drop: 0.18, lean: 0.3 },
+      splitter: { shape: "chop", windup: 1.6, step: 0.5, drop: 0.18, lean: 0.3, hips: 0.3 },
       wakeup: { shape: "slash", windup: 0.6 },
     },
   },
