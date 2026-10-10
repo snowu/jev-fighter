@@ -266,6 +266,8 @@ export class FighterModel {
       return { name, time: speed < 0 ? d - t : t };
     };
     const p = f.duration ? f.frame / f.duration : 0;
+    const bump = (x, c, wdt) => Math.max(0, 1 - Math.abs(x - c) / wdt);
+    const hop = (t, height) => ({ crouch: 0.55 * Math.max(bump(t, 0.08, 0.2), bump(t, 0.92, 0.2)), lift: height * Math.sin(Math.PI * t) });
 
     switch (f.state) {
       case "attack": {
@@ -297,9 +299,11 @@ export class FighterModel {
       case "grabbing": return at(S.throwing, f.frame / THROW_FRAMES);
       case "techstun": return at(S.knockback, 0.1 + 0.3 * p);
       case "taunt": return loop(S.taunt);
-      case "sidestep": return { ...at(S.dash, 0.15 + 0.6 * p), yaw: f.sideDir * Math.PI / 2 };
-      case "dash": return at(S.dash, 0.1 + 0.7 * p);
-      case "backdash": return at(S.knockback, 0.15 + 0.6 * p);
+      // No dodge clips in the library: dashes are a quick hop in stance (compress, low hop, land)
+      // leaning the way the sim moves the fighter.
+      case "sidestep": return { ...loop(S.idle), ...hop(p, 0.04), roll: 0.22 * f.sideDir };
+      case "dash": return { ...loop(S.idle), ...hop(p, 0.06), lean: -0.2 };
+      case "backdash": return { ...loop(S.idle), ...hop(p, 0.08), lean: 0.18 };
       case "roll": return { ...at(S.roll, p), yaw: Math.PI };
       default: return loop(S.idle);
     }
@@ -338,8 +342,9 @@ export class FighterModel {
       this.crouchWeight += ((want.crouch ?? 0) - this.crouchWeight) * 0.5;
       this.crouchAction.setEffectiveWeight(this.crouchWeight);
     }
-    this.pivot.rotation.set(this.tilt, want.yaw ?? 0, 0);
-    this.holder.position.set(0, 0, 0);
+    // Model space faces -z: +x tilt leans back, +z roll leans to the fighter's side.
+    this.pivot.rotation.set(this.tilt + (want.lean ?? 0), want.yaw ?? 0, want.roll ?? 0);
+    this.holder.position.set(0, want.lift ?? 0, 0);
     this.rig.restore();
     this.mixer.update(0);
     this.placeWeapon(f, want, target);
