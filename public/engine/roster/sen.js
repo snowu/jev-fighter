@@ -12,8 +12,17 @@ export default {
     build: [0.96, 0.98], trim: 0xd8d0bc, accent: 0x8a1f2b, weapon: "katana", weaponLength: 1.0,
     parts: ["topknot", "sash"],
     swings: {
-      draw: "slash", draw2: "backslash", crescent: "chop", flick: "sweep", rising: "rising", ankle: "sweep",
-      heaven: "rising", iai: "thrust", riposte: "slash", sheathe: "backslash", wakeup: "slash",
+      draw: { shape: "slash", windup: 0.55, step: 0.12, hips: 0.3 }, // quick draw: tight and fast
+      draw2: { shape: "backslash", windup: 0.7, step: 0.15 },
+      crescent: { shape: "chop", windup: 1.3, step: 0.3, drop: 0.12 },
+      flick: { shape: "sweep", windup: 0.7, step: 0.15 },
+      rising: { shape: "rising", windup: 1.1, step: 0.22, hips: 0.25 },
+      ankle: { shape: "sweep", windup: 0.9, step: 0.2 },
+      heaven: { shape: "rising", windup: 1.3, step: 0.18, drop: -0.05 },
+      iai: { shape: "thrust", windup: 0.5, step: 0.6, drop: 0.1, lean: 0.3 }, // long committed lunge
+      riposte: { shape: "slash", windup: 0.4, step: 0.25 },
+      sheathe: { shape: "backslash", windup: 0.8, step: -0.3 },
+      wakeup: "slash",
     },
     moves: { wristlock: "Melee_Hook" }, // clip-driven moves (throws)
   },

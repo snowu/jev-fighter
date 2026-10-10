@@ -15,8 +15,16 @@ export default {
     parts: ["horned_helm", "fur_mantle"],
     // Procedural swing shape per move (public/game/swing.js); moves without one (throws) use clips.
     swings: {
-      jab: "thrust", jab2: "thrust", finisher: "slash", overhead: "chop", shin: "sweep", lift: "rising",
-      whirlwind: "spin", bullrush: "thrust", splitter: "chop", wakeup: "slash",
+      jab: { shape: "thrust", windup: 0.6, step: 0.12 }, // haft jab: short, no commitment
+      jab2: { shape: "thrust", windup: 0.7, step: 0.15 },
+      finisher: { shape: "slash", windup: 1.4, step: 0.3, hips: 0.55 },
+      overhead: { shape: "chop", windup: 1.8, step: 0.42, drop: 0.22, lean: 0.4 }, // big telegraphed cleave
+      shin: { shape: "sweep", windup: 1.2, step: 0.25 },
+      lift: { shape: "rising", windup: 1.2, step: 0.2 },
+      whirlwind: { shape: "spin", windup: 1.3, hips: 0.85, step: 0.12 },
+      bullrush: { shape: "thrust", windup: 0.5, step: 0.55, drop: 0.08, lean: 0.3 }, // shoulder-first charge
+      splitter: { shape: "chop", windup: 1.9, step: 0.35, drop: 0.3, lean: 0.45 },
+      wakeup: "slash",
     },
     moves: { headbutt: "Melee_Hook" }, // clip-driven moves (throws)
   },

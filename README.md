@@ -76,8 +76,12 @@ Attacks are animated from the sim's own data, not from mocap. Each move has a sw
 (thrust, slash, backslash, chop, rising, sweep or spin, set in the roster's `look.swings`).
 The weapon tip follows a path that passes through the real hit point during the active frames:
 the move's reach, or the opponent's body if they're closer, at face, chest or shin height.
-Two-bone IK puts both hands on the weapon, and the torso twists and leans while the body lunges
-in when the target is out of arm's reach (`public/game/swing.js`). The wind-up takes the
+Two-bone IK puts both hands on the weapon. The hips and torso coil in the wind-up and unwind
+through the hit, the lead foot steps in while the rear foot stays planted, and the weight drops
+on impact (`public/game/swing.js`). Each move is tuned by a few numbers in its roster
+`look.swings` entry (`windup`, `step`, `drop`, `hips`, `lean`, `span`). Anything left out
+defaults from the frame data: heavy moves wind up big, jabs stay compact, and retreating moves
+step back. The wind-up takes the
 startup, the strike crosses the target inside the active window, and the follow-through and
 return fill the recovery. Stance, movement, hit reactions, knockdowns and throws still use
 clips. If models fail to load, the old capsules come back.

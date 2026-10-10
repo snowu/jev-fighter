@@ -11,7 +11,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { isCrouching } from "../engine/sim/world.js";
-import { SwingRig, swingPhase } from "./swing.js";
+import { SwingRig, swingPhase, tuneSwing } from "./swing.js";
 import { THROW_FRAMES, KNOCKDOWN_FRAMES } from "../engine/sim/constants.js";
 
 const BASE = "./assets/";
@@ -339,10 +339,16 @@ export class FighterModel {
       this.crouchAction.setEffectiveWeight(this.crouchWeight);
     }
     this.pivot.rotation.set(this.tilt, want.yaw ?? 0, 0);
-    this.holder.position.x = 0;
+    this.holder.position.set(0, 0, 0);
     this.rig.restore();
     this.mixer.update(0);
     this.placeWeapon(f, want, target);
+  }
+
+  tuning(m, spec) {
+    this.tuned ??= new Map();
+    if (!this.tuned.has(m.id)) this.tuned.set(m.id, tuneSwing(spec, m));
+    return this.tuned.get(m.id);
   }
 
   /** Swing pose (attacks) blended with the hand-held rest pose. Needs the group's transform up to date. */
@@ -358,9 +364,10 @@ export class FighterModel {
     const frameQ = frame.getWorldQuaternion(new THREE.Quaternion()).invert();
     let swing = null;
     if (want.swing && f.state === "attack") {
+      const tune = this.tuning(f.move, want.swing);
       swing = this.rig.apply({
-        frame, holder: this.holder, root: this.root, shape: want.swing, m: f.move, target,
-        weaponTip: this.weaponTip, twoHanded: this.look.twoHanded ?? true, phase: swingPhase(f.move, f.frame),
+        frame, holder: this.holder, root: this.root, tune, m: f.move, target,
+        weaponTip: this.weaponTip, twoHanded: this.look.twoHanded ?? true, phase: swingPhase(f.move, f.frame, tune),
       });
     }
     const restPos = frame.worldToLocal(this.hand.getWorldPosition(new THREE.Vector3()));
