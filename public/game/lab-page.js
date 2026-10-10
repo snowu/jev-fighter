@@ -79,9 +79,11 @@ function renderSheet() {
     const want = new Set([...Array(n)].map((_, i) => Math.round((i * (kase.frames - 1)) / Math.max(1, n - 1))));
     if (kase.expect.swing) want.add(hitFrame(move));
     let rowBad = false;
-    poser.play(kase, Math.max(...want), (f) => {
-      if (!want.has(f.frame)) return;
+    poser.play(kase, kase.frames - 1, (f) => {
+      // Check every frame (pop/direction checks compare consecutive frames), draw the sampled ones.
       const fails = checkPose(poser, kase, f);
+      rowBad ||= fails.length > 0;
+      if (!want.has(f.frame)) return;
       thumbRenderer.render(stage.scene, thumbCam);
       const cell = document.createElement("div");
       cell.className = `thumb${fails.length ? " bad" : ""}${kase.expect.swing && f.frame === hitFrame(move) ? " hit" : ""}`;
@@ -94,7 +96,6 @@ function renderSheet() {
       cell.append(c, label);
       cell.onclick = () => openViewer(kase, f.frame);
       thumbs.appendChild(cell);
-      rowBad ||= fails.length > 0;
     });
     if (rowBad) title.classList.add("bad");
   }
@@ -134,8 +135,8 @@ function openViewer(kase, frame) {
 function setFrame(frame) {
   view.frame = Math.max(0, Math.min(view.kase.frames - 1, frame));
   $("scrub").value = view.frame;
-  const f = view.poser.pose(view.kase, view.frame);
-  const fails = checkPose(view.poser, view.kase, f);
+  let f = null, fails = [];
+  view.poser.play(view.kase, view.frame, (g) => { f = g; fails = checkPose(view.poser, view.kase, g); }); // same history as the tests
   const m = f.move;
   $("fails").innerHTML = `<div class="muted">frame ${view.frame}${m ? ` · ${phaseName(m, view.frame)}${m && view.kase.expect.swing && view.frame === hitFrame(m) ? " · HIT FRAME" : ""}` : ""}</div>` +
     (fails.length ? fails.map((x) => `<div>✗ ${x.check}: ${x.detail}</div>`).join("") : `<div class="ok">✓ all checks pass</div>`);

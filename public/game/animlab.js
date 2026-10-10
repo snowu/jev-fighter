@@ -19,25 +19,29 @@ export function animCases(char) {
   const cases = [];
   const add = (group, id, frames, fighter, expect = {}) => cases.push({ group, id, frames, fighter, expect: { ...base, ...expect } });
 
-  add("stance", "idle", 60, () => ({ state: "idle" }));
-  add("stance", "walk forward", 60, () => ({ state: "idle", walking: 1 }));
-  add("stance", "walk back", 60, () => ({ state: "idle", walking: -1 }));
-  add("stance", "crouch", 60, () => ({ state: "idle", crouch: true }), { crouched: true });
+  // guard: weapon held out towards the opponent; steady: no flailing between frames.
+  add("stance", "idle", 60, () => ({ state: "idle" }), { guard: true, steady: true });
+  // travel: which way the planted foot must slide over the clip (−1: backwards = walking forward).
+  add("stance", "walk forward", 60, () => ({ state: "idle", walking: 1 }), { guard: true, steady: true, travel: -1 });
+  add("stance", "walk back", 60, () => ({ state: "idle", walking: -1 }), { guard: true, steady: true, travel: 1 });
+  add("stance", "crouch", 60, () => ({ state: "idle", crouch: true }), { crouched: true, guard: true, steady: true });
   // Dashes compress on take-off and landing, so they count as crouched for the head-height check.
   add("movement", "dash", mv(char, "dash").frames, () => ({ state: "dash", duration: mv(char, "dash").frames }), { crouched: true });
   add("movement", "backdash", mv(char, "backdash").frames, () => ({ state: "backdash", duration: mv(char, "backdash").frames }), { crouched: true });
   add("movement", "sidestep in", mv(char, "sidestep").frames, () => ({ state: "sidestep", sideDir: 1, duration: mv(char, "sidestep").frames }), { facing: false, crouched: true });
   add("movement", "sidestep out", mv(char, "sidestep").frames, () => ({ state: "sidestep", sideDir: -1, duration: mv(char, "sidestep").frames }), { facing: false, crouched: true });
-  add("movement", "roll", mv(char, "roll").frames, () => ({ state: "roll", sideDir: 1, duration: mv(char, "roll").frames }), { upright: false, facing: false, grounded: false });
+  add("movement", "roll", mv(char, "roll").frames, () => ({ state: "roll", sideDir: 1, duration: mv(char, "roll").frames }), { upright: false, facing: false, grounded: false, popTolerance: 0.5, knockedBack: true, tuck: 0.5, awayBy: 0.3 }); // tucks forward, then tumbles away
   add("movement", "taunt", C.TAUNT_FRAMES, () => ({ state: "taunt", duration: C.TAUNT_FRAMES }), { facing: false });
-  add("defence", "block", 14, () => ({ state: "blockstun", duration: 14 }));
-  add("defence", "block low", 14, () => ({ state: "blockstun", duration: 14, crouch: true }), { crouched: true });
-  add("reactions", "hit light", 18, () => ({ state: "hitstun", duration: 18 }));
-  add("reactions", "hit heavy", 26, () => ({ state: "hitstun", duration: 26 }));
-  add("reactions", "juggled", C.JUGGLE_FRAMES, () => ({ state: "juggle", duration: C.JUGGLE_FRAMES }), { upright: false, grounded: false, facing: false });
-  add("reactions", "knockdown", C.KNOCKDOWN_FRAMES, () => ({ state: "knockdown" }), { upright: false, facing: false, held: false, grounded: false });
-  add("reactions", "guard break", C.GUARDBREAK_FRAMES, () => ({ state: "guardbreak", duration: C.GUARDBREAK_FRAMES }));
-  add("reactions", "staggered", 30, () => ({ state: "staggered", duration: 30 }));
+  add("defence", "block", 14, () => ({ state: "blockstun", duration: 14 }), { guard: true });
+  add("defence", "block low", 14, () => ({ state: "blockstun", duration: 14, crouch: true }), { crouched: true, guard: true });
+  // recoil: a hit must visibly knock the head back.
+  add("reactions", "hit light", 18, () => ({ state: "hitstun", duration: 18 }), { recoil: 0.05, knockedBack: true });
+  add("reactions", "hit heavy", 26, () => ({ state: "hitstun", duration: 26 }), { recoil: 0.09, knockedBack: true });
+  // knockedBack: the head must go away from the opponent, never lurch towards them.
+  add("reactions", "juggled", C.JUGGLE_FRAMES, () => ({ state: "juggle", duration: C.JUGGLE_FRAMES }), { upright: false, grounded: false, facing: false, knockedBack: true });
+  add("reactions", "knockdown", C.KNOCKDOWN_FRAMES, () => ({ state: "knockdown" }), { upright: false, facing: false, held: false, grounded: false, knockedBack: true, endsFacing: true, awayBy: 0.5 });
+  add("reactions", "guard break", C.GUARDBREAK_FRAMES, () => ({ state: "guardbreak", duration: C.GUARDBREAK_FRAMES }), { knockedBack: true });
+  add("reactions", "staggered", 30, () => ({ state: "staggered", duration: 30 }), { knockedBack: true });
   add("reactions", "tech", C.TECH_STUN, () => ({ state: "techstun", duration: C.TECH_STUN }));
   add("reactions", "thrown", C.THROW_FRAMES, () => ({ state: "grabbed" }), { upright: false, facing: false });
   add("reactions", "throwing", C.THROW_FRAMES, () => ({ state: "grabbing" }), { facing: false, lunging: true });
@@ -126,7 +130,7 @@ export function checkPose(poser, kase, f) {
     if (head.y - pelvis.y < (e.crouched || e.lunging ? 0.25 : 0.3)) fail("upright", `head only ${(head.y - pelvis.y).toFixed(2)} m above pelvis`);
     if (chest.y < waist.y + 0.04) fail("spine", `chest (${chest.y.toFixed(2)}) not above waist (${waist.y.toFixed(2)}): folded`);
   }
-  if (e.facing) {
+  if (e.facing || (e.endsFacing && f.frame === kase.frames - 1)) {
     // Hips' forward direction from the line between the thighs: must point at the opponent (+x).
     const across = P("thigh_r").sub(P("thigh_l"));
     const fwd = new THREE.Vector3(0, 1, 0).cross(across).setY(0).normalize();
@@ -145,7 +149,68 @@ export function checkPose(poser, kase, f) {
   if (floor < -0.06) fail("floor", `${bodyNames[lowIdx]} ${(-floor).toFixed(2)} m below the floor`);
   if (!GROUNDED_LOW.has(f.state) && tip.y + ground < -0.08) fail("floor", `weapon tip ${(-(tip.y + ground)).toFixed(2)} m below the floor`);
 
+  // Per-case memory across frames (reset at frame 0): reference head position, last weapon direction.
+  if (f.frame === 0) poser.track = { head0: head.clone(), maxBack: 0, dir: null, prevHead: null, foot: null, drift: 0 };
+  const tr = poser.track;
+
+  // Pops: the head never teleports between consecutive frames (clip switches that flip the body).
+  if (tr.prevHead && f.frame > 2 && head.distanceTo(tr.prevHead) > (e.popTolerance ?? 0.3)) fail("pop", `head jumped ${head.distanceTo(tr.prevHead).toFixed(2)} m in one frame`);
+  tr.prevHead = head.clone();
+  // Knocked back: the head goes away from the opponent and never lurches towards them.
+  tr.minHeadX = Math.min(tr.minHeadX ?? Infinity, head.x);
+  if (e.awayBy && f.frame === kase.frames - 1 && tr.head0.x - tr.minHeadX < e.awayBy) {
+    fail("direction", `head only went ${(tr.head0.x - tr.minHeadX).toFixed(2)} m away from the opponent (needs ${e.awayBy})`);
+  }
+  if (e.knockedBack && head.x - tr.head0.x > (e.tuck ?? 0.25)) fail("direction", `head moved ${(head.x - tr.head0.x).toFixed(2)} m towards the opponent (should be knocked back)`);
+  // Travel: the planted (lowest) foot slides opposite to the walking direction.
+  if (e.travel) {
+    const fl = P("ball_l"), fr = P("ball_r");
+    const low = fl.y < fr.y ? ["l", fl] : ["r", fr];
+    if (tr.foot && tr.foot[0] === low[0]) tr.drift += low[1].x - tr.foot[1].x;
+    tr.foot = low;
+    if (f.frame === kase.frames - 1 && Math.sign(tr.drift) !== e.travel) {
+      fail("direction", `planted foot slid ${tr.drift.toFixed(2)} m: the clip walks the wrong way`);
+    }
+  }
+  const wdir = new THREE.Vector3(0, 1, 0).applyQuaternion(poser.model.weapon.quaternion);
+  if (e.guard && f.frame >= 4) { // after the guard has eased in
+    // The weapon's middle must be out in front of the body, between the fighter and the opponent.
+    const mid = poser.model.weapon.position.clone().addScaledVector(wdir, poser.model.weaponTip / 2);
+    if (mid.x < 0.15) fail("guard", `weapon held ${mid.x < 0 ? "behind" : "at"} the body (middle at x=${mid.x.toFixed(2)})`);
+  }
+  if (e.steady && tr.dir && f.frame > 6) {
+    const turn = tr.dir.angleTo(wdir);
+    if (turn > 0.12) fail("steady", `weapon swung ${(turn * 57.3).toFixed(0)}° in one frame (flailing)`);
+  }
+  tr.dir = wdir.clone();
+  if (e.recoil) {
+    tr.maxBack = Math.max(tr.maxBack, tr.head0.x - head.x);
+    if (f.frame === Math.round(kase.frames * 0.4) && tr.maxBack < e.recoil) fail("recoil", `head only moved back ${tr.maxBack.toFixed(2)} m (needs ${e.recoil})`);
+  }
+
   const handR = P("hand_r"), handL = P("hand_l");
+
+  // Arms, wherever the guard or a swing holds the weapon (after blending in):
+  //  - hands out in front of the chest, not buried in the torso
+  //  - elbows clear of the torso
+  //  - wrists turned so the weapon runs through the fist
+  const holding = (e.guard && f.frame >= 4) || (f.state === "attack" && e.swing && (poser.model.rig.lastWeight ?? 0) > 0.9);
+  if (holding) {
+    const torso = [P("pelvis"), P("neck_01")];
+    const toTorso = (p) => {
+      const [a, b] = torso, ab = b.clone().sub(a), t = Math.min(1, Math.max(0, p.clone().sub(a).dot(ab) / ab.lengthSq()));
+      return p.distanceTo(a.clone().addScaledVector(ab, t));
+    };
+    for (const [side, hand, elbow] of [["right", handR, P("lowerarm_r")], ["left", handL, P("lowerarm_l")]]) {
+      if (toTorso(hand) < 0.13) fail("arms", `${side} hand inside the torso (${toTorso(hand).toFixed(2)} m from its axis)`);
+      if (toTorso(elbow) < 0.075) fail("arms", `${side} elbow inside the torso (${toTorso(elbow).toFixed(2)} m from its axis)`); // ~0.09 is tucked against the ribs
+    }
+    const gripAxis = new THREE.Vector3(1, 0, 0).applyQuaternion(poser.model.hand.getWorldQuaternion(new THREE.Quaternion()));
+    const frameQ = poser.frame.getWorldQuaternion(new THREE.Quaternion());
+    const weaponAxis = wdir.clone().applyQuaternion(frameQ);
+    const wrist = gripAxis.angleTo(weaponAxis);
+    if (wrist > 0.6) fail("wrist", `weapon ${(wrist * 57.3).toFixed(0)}° off the fist's grip axis`);
+  }
   const attacking = f.state === "attack" && e.swing;
   // Hands are checked once the swing has fully taken over from the stance (w ≈ 1).
   const w = attacking ? swingPhase(f.move, f.frame, poser.model.tuning(f.move, poser.char.look.swings[f.move.id])).w : 0;
@@ -167,10 +232,11 @@ export function checkPose(poser, kase, f) {
 /** Sampled frames for a case: every frame for short ones, ~24 samples for long loops. */
 export function sampleFrames(kase) {
   const n = kase.frames;
-  const step = Math.max(1, Math.floor(n / 24));
+  const step = 1; // every frame: pop and direction checks compare consecutive frames
   const out = [];
   for (let fr = 0; fr < n; fr += step) out.push(fr);
   if (kase.expect.swing) out.push(hitFrame(kase.fighter(0).move));
+  if (kase.expect.recoil) out.push(Math.round(n * 0.4));
   return [...new Set(out)].sort((a, b) => a - b);
 }
 

@@ -21,8 +21,8 @@ export default {
       finisher: { shape: "slash", windup: 1.4, step: 0.3, hips: 0.55 },
       overhead: { shape: "chop", windup: 1.8, step: 0.42, drop: 0.22, lean: 0.4 }, // big telegraphed cleave
       shin: { shape: "sweep", windup: 1.2, step: 0.25 },
-      lift: { shape: "rising", windup: 1.2, step: 0.2 },
-      whirlwind: { shape: "spin", windup: 1.3, hips: 0.85, step: 0.12 },
+      lift: { shape: "rising", windup: 0.9, step: 0.2 },
+      whirlwind: { shape: "spin", windup: 0.95, hips: 0.85, step: 0.12, span: 2.1 },
       bullrush: { shape: "thrust", windup: 0.5, step: 0.55, drop: 0.08, lean: 0.3 }, // shoulder-first charge
       splitter: { shape: "chop", windup: 1.9, step: 0.35, drop: 0.18, lean: 0.3 },
       wakeup: "slash",

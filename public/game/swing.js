@@ -103,7 +103,7 @@ export function swingPose(shape, P, sh, s, span = 1.5) {
     case "slash": case "backslash": case "sweep": case "spin": {
       // Horizontal arc around the body at the target's height, from the weapon side across.
       const side = shape === "backslash" ? -1 : 1;
-      const th = s * span;
+      const th = s < 0 ? s * span : s * span * 0.55; // short follow-through: the arms don't wrap round the body
       const rad = Math.max(0.6, P.x);
       const drop = shape === "sweep" ? 0 : -0.22 * s; // diagonal: high at wind-up, low at follow-through
       tip.set(Math.cos(th) * rad, P.y + drop, -Math.sin(th) * rad * side);
@@ -179,13 +179,28 @@ export class SwingRig {
       };
     };
     this.legs = [leg("l"), leg("r")];
+    // Which side of the fighter frame (±z) the weapon arm is on: fixed once (calibrate), from the
+    // first animated stance. Per-frame from the shoulders it flips when the torso coils far enough
+    // (a pop), and the bind pose faces the other way from the clips, so it can't come from that.
+    this.sideK = null;
     this.pelvis = bone("pelvis");
     this.spine = bone("spine_03");
+    this.neck = bone("neck_01");
     this.waist = bone("spine_01");
     this.saved = new Map();
   }
 
-  remember(bones) { for (const b of bones) this.saved.set(b, b.quaternion.clone()); }
+  /**
+   * Snapshot bones before posing them. `saved` keeps the first (clip) pose for restore();
+   * `base` is what this pass blends from (the guard, when an attack is layered on top of it).
+   */
+  remember(bones) {
+    this.base ??= new Map();
+    for (const b of bones) {
+      if (!this.saved.has(b)) this.saved.set(b, b.quaternion.clone());
+      this.base.set(b, b.quaternion.clone());
+    }
+  }
 
   /**
    * Put back the clip pose before the next mixer update. three's mixer only writes a bone when
@@ -194,9 +209,90 @@ export class SwingRig {
   restore() {
     for (const [b, q] of this.saved) b.quaternion.copy(q);
     this.saved.clear();
+    this.base?.clear();
   }
   blend(bones, w) {
-    for (const b of bones) { const solved = b.quaternion.clone(); b.quaternion.copy(this.saved.get(b)).slerp(solved, w); }
+    for (const b of bones) { const solved = b.quaternion.clone(); b.quaternion.copy(this.base.get(b)).slerp(solved, w); }
+  }
+
+  /**
+   * Guard: the upper body holds the weapon towards the opponent over whatever the legs are doing
+   * (idle, walk, crouch, block). `pose` is { hand, dir } with the hand given relative to the chest
+   * (spine_03), so a crouch lowers the guard with the body and a bladed stance still holds the
+   * weapon out in front. Returns the weapon transform.
+   */
+  guard({ frame, root, pose, w, twoHanded, offHand = 0.3 }) {
+    const toWorld = (p) => frame.localToWorld(v().copy(p));
+    const axis = (x, y, z) => toWorld(v(x, y, z)).sub(frame.localToWorld(v())).normalize();
+    const bones = [this.spine, this.waist, this.right.upper, this.right.lower, this.right.hand, this.left.upper, this.left.lower, this.left.hand];
+    this.remember(bones);
+    // Square the chest towards the opponent: the stance clips stand bladed (weapon shoulder back),
+    // which made the arms reach across the body and fold into it.
+    const across = v().subVectors(frame.worldToLocal(this.right.upper.getWorldPosition(v())), frame.worldToLocal(this.left.upper.getWorldPosition(v())));
+    const kk = this.sideK;
+    const blade = Math.atan2(-across.x, across.z * kk) * kk;
+    const upAxis = axis(0, 1, 0);
+    this.turn(this.waist, upAxis, blade * 0.3);
+    this.turn(this.spine, upAxis, blade * 0.4);
+    const shoulder = frame.worldToLocal(this.right.upper.getWorldPosition(v()));
+    const chest = frame.worldToLocal(this.spine.getWorldPosition(v()));
+    const k = this.sideK;
+    const hand = v(chest.x + pose.hand[0], chest.y + pose.hand[1], chest.z + pose.hand[2] * k);
+    const dir = v(pose.dir[0], pose.dir[1], pose.dir[2] * k).normalize();
+    this.forwardW = axis(1, 0, 0);
+    this.reach(this.right, toWorld(hand));
+    const reached = frame.worldToLocal(this.right.hand.getWorldPosition(v()));
+    if (twoHanded) this.reach(this.left, toWorld(v().copy(reached).addScaledVector(dir, -offHand)));
+    const q = new THREE.Quaternion().setFromUnitVectors(Y, dir);
+    // Edge faces the opponent (forward), or up for a raised block.
+    const edge = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+    const wantEdge = v(1, 0.2, 0).addScaledVector(dir, -dir.x).normalize();
+    if (wantEdge.lengthSq() > 1e-6) {
+      const roll = Math.atan2(v().crossVectors(edge, wantEdge).dot(dir), edge.dot(wantEdge));
+      q.premultiply(new THREE.Quaternion().setFromAxisAngle(dir, roll));
+    }
+    this.orientHands(frame, q, twoHanded);
+    this.blend(bones, w);
+    root.updateMatrixWorld(true);
+    return { position: reached, quaternion: q, weight: w };
+  }
+
+  /**
+   * Reach an arm to `target` (world) with the elbow bent away from the torso: outward from the
+   * spine's axis and down. Targets inside the torso are pushed out in front of it first.
+   */
+  reach(arm, target) {
+    const a = this.pelvis.getWorldPosition(v()), b = this.neck.getWorldPosition(v());
+    const ab = v().subVectors(b, a);
+    const onAxis = (p) => a.clone().addScaledVector(ab, Math.min(1, Math.max(0, v().subVectors(p, a).dot(ab) / ab.lengthSq())));
+    // Push targets that are inside the torso out to its front (a stable direction: no flips).
+    const t = target.clone();
+    const fromAxis = v().subVectors(t, onAxis(t));
+    const ahead = fromAxis.dot(this.forwardW);
+    if (fromAxis.length() < 0.22) t.addScaledVector(this.forwardW, Math.max(0, 0.22 - ahead));
+    const shoulder = arm.upper.getWorldPosition(v());
+    const outward = v().subVectors(shoulder, onAxis(shoulder)).normalize();
+    const down = ab.clone().normalize().negate();
+    solveArm(arm, t, outward.multiplyScalar(0.9).addScaledVector(down, 0.8).addScaledVector(this.forwardW, 0.25).normalize());
+  }
+
+  /** Fix the weapon-arm side from the current (clip) pose. Call before any IK touches it. */
+  calibrate(frame) {
+    if (this.sideK !== null) return;
+    frame.updateMatrixWorld(true);
+    const r = frame.worldToLocal(this.right.upper.getWorldPosition(v())), l = frame.worldToLocal(this.left.upper.getWorldPosition(v()));
+    this.sideK = Math.sign(r.z - l.z) || 1;
+  }
+
+  /** Turn both hands so the weapon (orientation q, fighter frame) runs through the fists. */
+  orientHands(frame, q, twoHanded) {
+    if (!this.gripInv) return;
+    const handQ = frame.getWorldQuaternion(new THREE.Quaternion()).multiply(q).multiply(this.gripInv);
+    for (const arm of twoHanded ? [this.right, this.left] : [this.right]) {
+      const h = arm.hand;
+      h.quaternion.copy(h.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(handQ));
+      h.updateMatrixWorld(true);
+    }
   }
 
   /** Rotate a bone in world space about `axis` (world) by `angle`. */
@@ -211,8 +307,9 @@ export class SwingRig {
    * Pose the body for an attack. frame: the group (fighter frame); holder: the model holder, moved
    * for the step, the weight drop and any lunge. Returns the weapon grip transform (group frame).
    */
-  apply({ frame, holder, root, tune, m, target, weaponTip, twoHanded, phase }) {
+  apply({ frame, holder, root, tune, m, target, weaponTip, twoHanded, phase, offHand }) {
     const { s, w, windK, stepK, lift } = phase;
+    this.lastWeight = w;
     const shape = tune.shape;
     const toWorld = (p) => frame.localToWorld(v().copy(p));
     const axis = (x, y, z) => toWorld(v(x, y, z)).sub(frame.localToWorld(v())).normalize();
@@ -241,17 +338,20 @@ export class SwingRig {
     holder.updateMatrixWorld(true);
 
     // Hips and torso coil towards the weapon side in the wind-up and unwind through the hit.
-    const k0 = Math.sign(frame.worldToLocal(this.right.upper.getWorldPosition(v())).z) || 1; // weapon arm side
+    const k0 = this.sideK; // weapon arm side
     const dirSign = shape === "backslash" ? -1 : 1;
-    const coil = tune.hips * s * k0 * dirSign;
+    // The chest turns with horizontal arcs (keeps the arms in front of it instead of wrapping
+    // across the body); vertical shapes just use the hip coil.
+    const arc = tune.span && /slash|sweep|spin/.test(shape) ? tune.span * 0.4 : 0;
+    const coil = Math.max(-1.1, Math.min(1.1, (tune.hips + arc) * s)) * k0 * dirSign;
     const up = axis(0, 1, 0), side = axis(0, 0, 1);
-    this.turn(this.pelvis, up, coil * 0.55);
-    this.turn(this.spine, up, coil * 0.45);
+    this.turn(this.pelvis, up, coil * 0.4); // hips lead a little; the chest does most of the turning
+    this.turn(this.spine, up, coil * 0.6);
     this.turn(this.waist, side, -(tune.lean * bell + 0.18 * low - (shape === "chop" ? 0.12 : 0.05) * windK)); // rear back, then lean in
 
     // Weapon path for this frame, and where the weapon hand has to be.
     const shoulderG = frame.worldToLocal(this.right.upper.getWorldPosition(v()));
-    const k = Math.sign(shoulderG.z) || 1;
+    const k = this.sideK;
     const pose = (t) => { const p = swingPose(shape, P, shoulderG.y, t, tune.span); p.tip.z *= k; p.dir.z *= k; return p; };
     const { tip, dir } = pose(s);
     const reach = (this.right.upperLen + this.right.lowerLen) * 0.98;
@@ -282,15 +382,17 @@ export class SwingRig {
 
     // Arms: weapon hand onto the grip. If the arm can't quite get there, the weapon follows the
     // hand (same direction) rather than floating free; then the off hand takes the handle below.
-    solveArm(this.right, toWorld(hand), axis(-0.3, -1, 0.8 * k));
+    this.forwardW = axis(1, 0, 0);
+    this.reach(this.right, toWorld(hand));
     const reached = frame.worldToLocal(this.right.hand.getWorldPosition(v()));
     const slip = v().subVectors(reached, hand);
     if (slip.length() > 0.02) { tip.add(slip); hand.copy(reached); }
-    if (twoHanded) solveArm(this.left, toWorld(v().copy(hand).addScaledVector(dir, -0.3)), axis(-0.3, -1, -0.8 * k));
-    this.blend(bones, w);
-    root.updateMatrixWorld(true);
+    if (twoHanded) this.reach(this.left, toWorld(v().copy(hand).addScaledVector(dir, -(offHand ?? 0.3))));
 
     // Weapon: grip at the hand, axis towards the tip, edge facing the direction of the swing.
+    // If following the hand dropped the tip into the floor, tilt the weapon up until it rests on it.
+    const tipNow = v().copy(hand).addScaledVector(dir, len);
+    if (tipNow.y < 0.06) { dir.y += (0.06 - tipNow.y) / len; dir.normalize(); }
     const ahead = pose(s + 0.05).tip.sub(tip);
     const q = new THREE.Quaternion().setFromUnitVectors(Y, dir);
     const edge = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
@@ -300,6 +402,9 @@ export class SwingRig {
       const roll = Math.atan2(v().crossVectors(edge, wantEdge).dot(dir), edge.dot(wantEdge));
       q.premultiply(new THREE.Quaternion().setFromAxisAngle(dir, roll));
     }
+    this.orientHands(frame, q, twoHanded);
+    this.blend(bones, w);
+    root.updateMatrixWorld(true);
     return { position: v().copy(hand).addScaledVector(dir, -(weaponTip - len)), quaternion: q, weight: w, tip, lunge };
   }
 }

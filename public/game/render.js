@@ -299,7 +299,7 @@ export class Renderer {
       case "grabbed": body = 0x3a1460; break;
     }
     v.model.setEmissive(body, weapon);
-    v.model.tilt = f.state === "juggle" ? 0.6 : 0; // tipped back while airborne (model faces -z)
+    v.model.tilt = 0; // airborne tumble is handled by the model (see choose: juggle)
     v.group.position.set(f.x, y, f.z); // before the model update: attack poses are solved in this frame
     v.group.rotation.y = -f.facing;
     // Aim swings at the opponent as they actually are: how far away, and whether they're ducking.

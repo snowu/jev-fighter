@@ -41,6 +41,19 @@ const H = Math.PI / 2;
 export const GRIPS = { blade: [0, 0, -H], rest: [Math.PI, 0, 0], thrust: [0, 0, 0] };
 const gripFor = (clip) => (/^Punch_/.test(clip.name) ? "thrust" : clip.userData.src === "ual1" ? "rest" : "blade");
 
+// Guard poses per weapon: hand position relative to the weapon shoulder (forward, up, side) and
+// the weapon's direction, in the fighter frame (+x towards the opponent). stand: ready guard
+// (also under walks and crouches); high/low: blocking across the face / across the shins.
+// Hands are placed relative to the chest (forward, up, weapon side), out in front of the body.
+// offHand: where the second hand grips, along the weapon from the first (+ towards the butt):
+// katana hands together on the hilt; axe and spear lead hand further up the shaft (negative).
+const GUARDS = {
+  katana: { stand: { hand: [0.42, -0.12, 0.06], dir: [0.82, 0.55, -0.12] }, high: { hand: [0.38, 0.22, 0.12], dir: [0.3, 0.35, -0.89] }, low: { hand: [0.4, -0.38, 0.08], dir: [0.45, -0.45, -0.77] }, offHand: 0.14 },
+  axe: { stand: { hand: [0.4, -0.18, 0.08], dir: [0.45, 0.86, -0.2] }, high: { hand: [0.38, 0.2, 0.12], dir: [0.3, 0.3, -0.9] }, low: { hand: [0.4, -0.38, 0.08], dir: [0.4, -0.5, -0.77] }, offHand: -0.32 },
+  // Spear: the off (lead) hand sits forward on the shaft, so offHand is negative.
+  spear: { stand: { hand: [0.3, -0.15, 0.1], dir: [0.97, 0.22, -0.06] }, high: { hand: [0.38, 0.2, 0.12], dir: [0.3, 0.3, -0.9] }, low: { hand: [0.4, -0.35, 0.08], dir: [0.75, -0.22, -0.62] }, offHand: -0.42 },
+};
+
 // Clips for every non-attack state.
 const STATE_CLIPS = {
   idle: "Sword_Idle", walk: "Walk_Loop", crouch: "Crouch_Idle_Loop", block: "Sword_Block",
@@ -178,8 +191,8 @@ function buildAccessories(root, pivot, parts, colors) {
         attach(head, new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.34, 8), mat(colors.accent)), [0, 0.15, -0.03], [-0.25, 0, 0]);
         break;
       case "cloak": { // placed in model space (-z forward), then moved onto the chest bone so it follows the body
-        const cloak = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.95, 0.025), mat(colors.accent));
-        attach(pivot, cloak, [0, 0.93, 0.2], [0.12, 0, 0]);
+        const cloak = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.72, 0.02), mat(colors.accent));
+        attach(pivot, cloak, [0, 1.06, 0.17], [0.06, 0, 0]);
         pivot.updateMatrixWorld(true);
         chest?.attach(cloak);
         break;
@@ -230,6 +243,7 @@ export class FighterModel {
     this.weaponMats = this.weapon.userData.metal;
     this.holder.updateMatrixWorld(true);
     this.rig = new SwingRig(this.root);
+    this.rig.gripInv = this.grips.blade.clone().invert(); // hand rotation that puts the weapon through the fist
     this.floorBones = ["Head", "pelvis", "spine_03", "hand_l", "hand_r", "foot_l", "foot_r", "ball_l", "ball_r", "lowerarm_l", "lowerarm_r", "calf_l", "calf_r"]
       .map((n) => this.root.getObjectByName(n)).filter(Boolean);
     this.toes = ["l", "r"].map((s) => [this.root.getObjectByName(`foot_${s}`), this.root.getObjectByName(`ball_${s}`)]);
@@ -241,6 +255,7 @@ export class FighterModel {
     this.fade = 0;
     this.clock = 0;
     this.crouchWeight = 0;
+    this.guardW = 0;
     if (assets.crouch) {
       this.crouchAction = this.mixer.clipAction(assets.crouch);
       this.crouchAction.blendMode = THREE.AdditiveAnimationBlendMode;
@@ -277,12 +292,14 @@ export class FighterModel {
     };
     const p = f.duration ? f.frame / f.duration : 0;
     const bump = (x, c, wdt) => Math.max(0, 1 - Math.abs(x - c) / wdt);
+    const ease01 = (t) => { const x = Math.min(1, Math.max(0, t)); return x * x * (3 - 2 * x); };
+    const recoil = (t) => (t < 0.12 ? t / 0.12 : Math.max(0, 1 - (t - 0.12) / 0.7)); // fast snap, slow recovery
     const hop = (t, height) => ({ crouch: 0.55 * Math.max(bump(t, 0.08, 0.2), bump(t, 0.92, 0.2)), lift: height * Math.sin(Math.PI * t) });
 
     switch (f.state) {
       case "attack": {
         const m = f.move;
-        if (m.parry) return at(S.parry, 0.45);
+        if (m.parry) return loop(S.idle); // stance + the raised "high" guard (the library's block clip faces backwards)
         const swing = this.look.swings?.[m.id];
         // Procedural swings stand on the idle (or crouch) stance; the rig poses the upper body.
         if (swing) return { ...loop(S.idle), crouch: m.level === "low" ? 0.85 : 0, swing };
@@ -294,17 +311,28 @@ export class FighterModel {
         if (f.walking > 0) return loop(S.walk, f.char.walkForward / 1.6);
         if (f.walking < 0) return loop(S.walk, -f.char.walkBack / 1.6); // played backwards
         return loop(S.idle);
-      case "blockstun": return f.crouch ? loop(S.crouch) : at(S.block, 0.3 + 0.3 * p);
-      case "hitstun": return at(f.duration > 22 ? S.hitHeavy : S.hitLight, p);
-      case "juggle": return at(S.knockback, 0.3 + 0.3 * p);
+      case "blockstun": return { ...(f.crouch ? loop(S.crouch) : loop(S.idle)), lean: 0.1 * recoil(p), crouch: f.crouch ? 0 : 0.15 * recoil(p) };
+      // Hits: the clip plus a real recoil (snap back, then recover), bigger for heavy hits.
+      case "hitstun": {
+        const heavy = f.duration > 22;
+        return { ...at(heavy ? S.hitHeavy : S.hitLight, p), lean: (heavy ? 0.38 : 0.22) * recoil(p), crouch: heavy ? 0.3 * recoil(p) : 0 };
+      }
+      // Juggled: tumbling backwards with knees tucked, not a rigid plank.
+      // Juggled: the knockback clip's airborne frame, turned so the head trails away from the
+      // opponent (knocked back, not forward), tipping further back as they fall.
+      case "juggle": return { ...at(S.knockback, 0.32), yaw: Math.PI, lean: 0.2 + 0.35 * p, crouch: 0.45 };
       case "knockdown": {
         // Fall for most of it, then get up in the last stretch.
         const k = f.frame / KNOCKDOWN_FRAMES;
-        return k < 0.62 ? at(S.fall, (k / 0.62) * 0.5) : at(S.getup, (k - 0.62) / 0.38);
+        // The get-up is the fall played in reverse: the library's get-up starts lying the other
+        // way round (head towards the opponent), which flipped the body on the floor.
+        return k < 0.5 ? at(S.fall, (k / 0.5) * 0.5) : at(S.fall, 0.5 * (1 - (k - 0.5) / 0.5));
       }
       case "ko": return at(S.fall, f.frame / 140);
-      case "guardbreak": return at(S.guardbreak, p);
-      case "staggered": return at(S.guardbreak, 0.2 + 0.6 * p);
+      // Guard break / parried: dazed backward sway, guard dropped (the library's shield-break clip
+      // lurches towards the opponent).
+      case "guardbreak": case "staggered":
+        return { ...at(S.hitHeavy, 0.35), lean: 0.22 + 0.07 * Math.sin(this.clock * 9), crouch: 0.2 };
       case "grabbed": return at(S.hitHeavy, 0.2 + 0.6 * f.frame / THROW_FRAMES);
       case "grabbing": return at(S.throwing, f.frame / THROW_FRAMES);
       case "techstun": return { ...loop(S.idle), ...hop(p, 0.03), lean: 0.2 * Math.sin(Math.PI * p) }; // shoved apart, stays on its feet
@@ -314,7 +342,9 @@ export class FighterModel {
       case "sidestep": return { ...loop(S.idle), ...hop(p, 0.04), roll: 0.22 * f.sideDir };
       case "dash": return { ...loop(S.idle), ...hop(p, 0.06), lean: -0.2 };
       case "backdash": return { ...loop(S.idle), ...hop(p, 0.08), lean: 0.18 };
-      case "roll": return { ...at(S.roll, p), yaw: Math.PI };
+      // Roll away from the opponent while facing them. The UAL1 clips are already turned to face
+      // the opponent on load, so this plays as-is (turning it again made it roll *towards* them).
+      case "roll": return at(S.roll, p);
       default: return loop(S.idle);
     }
   }
@@ -401,33 +431,69 @@ export class FighterModel {
   }
 
   /** Swing pose (attacks) blended with the hand-held rest pose. Needs the group's transform up to date. */
+  /** Which guard the upper body holds in this state (null: let the clip move the arms). */
+  guardFor(f) {
+    switch (f.state) {
+      case "idle": case "techstun": case "dash": case "backdash": case "sidestep": return "stand";
+      case "blockstun": return f.crouch ? "low" : "high";
+      case "attack": return f.move.parry ? "high" : this.look.swings?.[f.move.id] ? "stand" : null;
+      default: return null;
+    }
+  }
+
   placeWeapon(f, want, target) {
     const frame = this.holder.parent;
     if (!frame || !this.hand) return;
     if (this.weapon.parent !== frame) frame.add(this.weapon);
     frame.updateMatrixWorld(true);
+    this.rig.calibrate(frame); // first call: the pure clip pose, before any IK
+    const twoHanded = this.look.twoHanded ?? true;
 
-    // Rest: follow the hand with the grip that suits the current clip.
+    // 1. Clip: the weapon follows the hand with the grip that suits the current clip.
     const clip = this.assets.clips.get(this.cur.name);
     if (clip) this.gripQ.slerp(this.grips[gripFor(clip)], 0.35);
     const frameQ = frame.getWorldQuaternion(new THREE.Quaternion()).invert();
-    let swing = null;
+    const pos = frame.worldToLocal(this.hand.getWorldPosition(new THREE.Vector3()));
+    const quat = frameQ.multiply(this.hand.getWorldQuaternion(new THREE.Quaternion())).multiply(this.gripQ);
+
+    // 2. Guard: weapon held towards the opponent, eased in and out, poses blended smoothly.
+    const guards = GUARDS[this.look.weapon] ?? GUARDS.katana;
+    const g = this.guardFor(f);
+    this.guardW += ((g ? 1 : 0) - this.guardW) * 0.3;
+    if (g) {
+      const to = guards[g];
+      this.guardPose ??= { hand: [...to.hand], dir: [...to.dir] };
+      for (const key of ["hand", "dir"]) this.guardPose[key] = this.guardPose[key].map((x, i) => x + (to[key][i] - x) * 0.35);
+    }
+    if (this.guardW > 0.01 && this.guardPose) {
+      const breathe = Math.sin(this.clock * 2.2) * 0.012; // a little life in the stance
+      const pose = { hand: [this.guardPose.hand[0], this.guardPose.hand[1] + breathe, this.guardPose.hand[2]], dir: this.guardPose.dir };
+      const gd = this.rig.guard({ frame, root: this.root, pose, w: this.guardW, twoHanded, offHand: guards.offHand ?? 0.3 });
+      pos.lerp(gd.position, this.guardW);
+      quat.slerp(gd.quaternion, this.guardW);
+    }
+
+    // 3. Attack: the swing takes over from the guard.
     if (want.swing && f.state === "attack") {
       const tune = this.tuning(f.move, want.swing);
-      swing = this.rig.apply({
+      const swing = this.rig.apply({
         frame, holder: this.holder, root: this.root, tune, m: f.move, target,
-        weaponTip: this.weaponTip, twoHanded: this.look.twoHanded ?? true, phase: swingPhase(f.move, f.frame, tune),
+        weaponTip: this.weaponTip, twoHanded, phase: swingPhase(f.move, f.frame, tune), offHand: guards.offHand,
       });
-    }
-    const restPos = frame.worldToLocal(this.hand.getWorldPosition(new THREE.Vector3()));
-    const restQ = frameQ.multiply(this.hand.getWorldQuaternion(new THREE.Quaternion())).multiply(this.gripQ);
-    if (swing) {
-      this.weapon.position.copy(restPos).lerp(swing.position, swing.weight);
-      this.weapon.quaternion.copy(restQ).slerp(swing.quaternion, swing.weight);
+      pos.lerp(swing.position, swing.weight);
+      quat.slerp(swing.quaternion, swing.weight);
       this.lastTip = swing.tip;
-    } else {
-      this.weapon.position.copy(restPos);
-      this.weapon.quaternion.copy(restQ);
     }
+    // Blends between poses can still dip the tip into the floor: tilt it up to rest on it.
+    if (!GROUNDED_LOW.has(f.state)) {
+      const dir = new THREE.Vector3(0, 1, 0).applyQuaternion(quat);
+      const tipY = pos.y + dir.y * this.weaponTip + frame.position.y;
+      if (tipY < 0.06) {
+        const want = dir.clone().setY(dir.y + (0.06 - tipY) / this.weaponTip).normalize();
+        quat.premultiply(new THREE.Quaternion().setFromUnitVectors(dir, want));
+      }
+    }
+    this.weapon.position.copy(pos);
+    this.weapon.quaternion.copy(quat);
   }
 }

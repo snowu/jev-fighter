@@ -20,11 +20,18 @@ npm run sim:jev  # one headless match with Jev driving Kara (uses the API)
 It shows contact sheets of every state and move for each fighter. Frames that fail a check are
 outlined in red, and clicking any frame opens it in a scrubbable 3D viewer. The same checks run
 in `npm test` (`tools/anim.test.mjs`):
-- upright and not folded
-- hips facing the opponent
-- feet on the floor and nothing below it
-- weapon in hand
-- the weapon tip on the hit point at the hit frame
+- **Posture:** upright and not folded, with the hips facing the opponent.
+- **Floor:** feet on it and nothing below it.
+- **Weapon:**
+  - in hand, and held out in front in stances and blocks
+  - steady, with no flailing between frames
+  - the tip on the hit point at the hit frame
+- **Arms:** hands in front of the chest, elbows clear of the torso, and wrists aligned with the weapon.
+- **Direction and continuity:**
+  - walks travel the right way
+  - hits, knockdowns and rolls go away from the opponent
+  - no pops between frames
+  - hits visibly recoil
 
 **Deploys:** every push to `main` runs the tests, then `tools/build-pages.mjs`, then publishes to
 Pages. The build adds `?v=<commit>` to every module and asset URL, and pages load through a
