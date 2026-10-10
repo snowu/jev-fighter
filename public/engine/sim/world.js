@@ -432,7 +432,7 @@ function applyContact(world, { kind, a, d, m, counter }, emit) {
   d.comboDamage = comboDamage;
   d.juggleHits = juggleHits;
   world.hitstop = Math.max(world.hitstop, counter ? C.HITSTOP.counter : wasJuggled ? C.HITSTOP.juggle : C.HITSTOP.hit);
-  if (result === "knockdown" || result === "launch") world.epoch++;
+  if (result === "knockdown" || (result === "launch" && !wasJuggled)) world.epoch++;
 
   emit({
     type: "hit", who: a.side, target: d.side, move: m.id, level: m.level, damage,

@@ -26,13 +26,16 @@ export class HumanController {
       } else this.presses.push(e.code);
     };
     this.onUp = (e) => this.keys.delete(e.code);
+    this.onBlur = () => this.keys.clear(); // a key released while unfocused would otherwise stick
     window.addEventListener("keydown", this.onDown);
     window.addEventListener("keyup", this.onUp);
+    window.addEventListener("blur", this.onBlur);
   }
 
   detach() {
     window.removeEventListener("keydown", this.onDown);
     window.removeEventListener("keyup", this.onUp);
+    window.removeEventListener("blur", this.onBlur);
   }
 
   held(codes) { return codes.some((c) => this.keys.has(c)); }

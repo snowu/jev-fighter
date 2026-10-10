@@ -100,12 +100,14 @@ export class AIController {
   // ---- brain scheduling -------------------------------------------------------
 
   maybeThink(world) {
-    if (this.pending || world.phase === "over") return;
+    if (this.pending || world.phase !== "fight") return;
     if (!this.urgent && world.frame - this.lastThink < this.thinkEvery) return;
     this.urgent = false;
     this.lastThink = world.frame;
     const issued = { frame: world.frame, epoch: world.epoch };
     const ctx = { world, side: this.side, model: this.model, rng: this.rng, recentEvents: this.recent.slice(-4) };
+    // Warm start: act on the local brain's plan instantly while the first Jev answer is in flight.
+    if (!this.plan && this.brain.fallback) this.setPlan(world, { ...this.brain.fallback.plan(ctx), source: "local (warm-up)" });
     this.pending = this.brain.think(ctx)
       .then((plan) => {
         const delay = Math.ceil((plan.latencyMs ?? 0) * 60 / 1000);
@@ -162,12 +164,18 @@ export class AIController {
         mem.queued = null;
         this.note(world, `${read ? "read" : "guess"} ${m.level} → ${mem.guardStance} guard`);
       } else if (r === "sidestep" || r === "backdash") {
-        mem.queued = r === "sidestep" ? { sidestep: chance(0.5, rng) ? 1 : -1 } : { backdash: true };
+        this.enqueue(world, r === "sidestep" ? { sidestep: chance(0.5, rng) ? 1 : -1 } : { backdash: true });
         this.note(world, `${r} vs ${m.name}`);
       } else {
         const fast = fastestStrike(me.char);
-        mem.queued = { attack: ATTACK_SLOTS.find((s) => starter(me.char, s) === fast) };
-        this.note(world, `counter-attack vs ${m.name}${fast.startup < framesToActive ? "" : " (gamble)"}`);
+        if (reachOf(fast) < distance(me, opp)) {
+          mem.guardStance = read ? correct : mem.stance;
+          mem.guardUntil = f + Math.max(0, framesToActive) + m.active + 6;
+          this.note(world, `too far to counter → ${mem.guardStance} guard`);
+        } else {
+          this.enqueue(world, { attack: ATTACK_SLOTS.find((s) => starter(me.char, s) === fast) });
+          this.note(world, `counter-attack vs ${m.name}${fast.startup < framesToActive ? "" : " (gamble)"}`);
+        }
       }
       return;
     }
@@ -178,10 +186,10 @@ export class AIController {
       const r = sample(plan.afterBlocked, rng, this.shape);
       const cancels = me.move?.cancels;
       if (r === "keep_attacking" && cancels) { mem.chain = this.pickChain(cancels); this.note(world, "blocked → finish string"); }
-      else if (r === "keep_attacking") { mem.queued = { attack: sample(plan.attack, rng, { ...this.shape, only: ["light", "low", "heavy"] }) }; this.note(world, "blocked → attack again"); }
-      else if (r === "throw") { mem.queued = { attack: "throw" }; this.note(world, "blocked → throw"); }
+      else if (r === "keep_attacking") { this.enqueue(world, { attack: sample(plan.attack, rng, { ...this.shape, only: ["light", "low", "heavy"] }) }); this.note(world, "blocked → attack again"); }
+      else if (r === "throw") { this.enqueue(world, { attack: "throw" }); this.note(world, "blocked → throw"); }
       else if (r === "guard") { mem.guardUntil = f + 25; mem.guardStance = mem.stance; this.note(world, "blocked → guard"); }
-      else { mem.queued = r === "sidestep" ? { sidestep: chance(0.5, rng) ? 1 : -1 } : { backdash: true }; this.note(world, `blocked → ${r}`); }
+      else { this.enqueue(world, r === "sidestep" ? { sidestep: chance(0.5, rng) ? 1 : -1 } : { backdash: true }); this.note(world, `blocked → ${r}`); }
       return;
     }
 
@@ -199,7 +207,7 @@ export class AIController {
     }
 
     if (e.type === "knockdown" && e.by === me.side && chance(plan.taunt * 0.6, rng)) {
-      mem.queued = { taunt: true };
+      this.enqueue(world, { taunt: true }, 70);
       this.note(world, "taunt!");
       return;
     }
@@ -208,6 +216,11 @@ export class AIController {
       mem.techNow = chance(plan.tech, rng);
       if (mem.techNow) this.note(world, "break throw");
     }
+  }
+
+  /** Queue an action for the next actionable frame; it expires if the moment passes. */
+  enqueue(world, action, ttl = 40) {
+    this.mem.queued = { action, until: world.frame + ttl };
   }
 
   /** Prefer follow-ups that end in a launch or knockdown. */
@@ -237,9 +250,9 @@ export class AIController {
     if (!this.plan) return input;
 
     if (mem.queued) {
-      Object.assign(input, mem.queued);
+      const { action, until } = mem.queued;
       mem.queued = null;
-      return input;
+      if (f <= until) { Object.assign(input, action); return input; }
     }
 
     const punish = this.findPunish(world, dist);

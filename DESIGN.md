@@ -48,20 +48,30 @@ hurt") changes behaviour without any hand-tuned weights.
 1. **Reflex layer (deterministic, per frame).** Executes the current intent: walk to range,
    perform the chosen move string, input the combo, block when told to block. Includes
    human-like reaction delays (e.g. 12–20 frames) so it never feels like a frame-perfect bot.
-2. **Brain tick (Jev, ~every 300 ms and on key events).** One request carries a fan-out of
-   questions:
-   - *Now*: `tactic` (choice), `aggression` (score), `taunt` (noul), `target_height` (choice)
-   - *Contingencies* (speculative, cached): "if the opponent dashes in…", "if you get knocked
-     down…", "if the opponent whiffs a heavy…", "if cornered…"
+2. **Brain tick (Jev, every 18 frames ≈ 300 ms, plus right after any knockdown, launch or new round).**
+   One request carries 8 questions (`public/engine/ai/questions.js`):
+   - *Now*: `tactic` (choice of 8 plans), `attack` (choice over the character's own moves,
+     described from frame data), `aggression` (score)
+   - *Contingencies* (cached): `incoming` (how to react when attacked), `after_blocked`
+     (finish the string, throw, guard, sidestep or backdash), `wakeup`, `tech` (noul: ready to
+     break throws), `taunt` (noul)
 3. **Contingency cache = zero-latency reactions.** When an event fires mid-frame, the reflex
    layer samples from the *already-cached* distribution for that event, so there's no waiting
-   on the network. That's the trick that makes a ~100–400 ms model work in a game that runs at 16 ms per frame.
-4. **Freshness rule.** Tag every answer with the game tick it was asked at. Drop it if a big
-   change (a hit, knockdown or round end) happened after the request was sent. Fall back to
-   the last valid answer or a local default.
-5. **Player modelling in code.** Track what the human does (block low/high ratio, jump-ins,
-   wake-up habits, whiff-punish rate) and feed it as short phrases. Jev then *adapts* ("they
-   always block low → overhead"), while code keeps the counting accurate.
+   on the network. That's the trick that makes a ~250 ms model work in a game that runs at 16 ms per frame.
+4. **Freshness rule.** Each plan is tagged with the world `epoch`, which changes on a
+   knockdown, the initial launch, a throw break or a new round. A plan asked in an older epoch
+   is dropped and an urgent re-think is issued.
+5. **Player modelling in code** (`opponentModel.js`). It counts guard choices against my
+   attacks, attack levels used, the first action after blocking, wake-up choices, throw
+   breaks, string habits and whiffs. These become phrases like "they crouched against 4 of
+   your last 5 attacks". Jev adapts to them; code does the counting.
+6. **Human-like perception.** The controller sees the opponent through a per-character
+   reaction delay (13–16 frames). Slow moves can be *read* (`readSkill`); fast ones must be
+   *guessed* from the cached `incoming` distribution. Punishes use exact frame data from the
+   delayed view (`punishSkill`); string follow-ups are hit-confirmed (`confirmSkill`).
+7. **Local brain** (`brains.js`). Same plan shape, hand-tuned from each character's AI
+   profile. It covers fallback, offline play and the headless sim, so the game never depends
+   on the API being up.
 
 ### The unpredictability dial
 - `temperature` on sampling (sharper = harder and more "correct"; flatter = chaotic).
@@ -70,39 +80,58 @@ hurt") changes behaviour without any hand-tuned weights.
   indecision rather than as a bug.
 - Difficulty = reaction delay + temperature + how much habit info the brain sees.
 
-## Game shape
+## Combat system (as built)
 
-**Recommendation: 3D weapon fighter on a 2.5D plane (Tekken / Soul Calibur style).**
-Fight along a line with a sidestep axis, using 3D heroes and weapons. That gives the 3D wow
-factor without free-roam camera and pathing problems, and the situation stays easy to
-describe in words.
+A deterministic 60 fps sim (`public/engine/sim/world.js`) on a 3D ground plane. Fighters
+always face each other and can circle with sidesteps.
 
-- **Heroes**: 2 to start (e.g. axe berserker vs katana duelist). Each has a persona string,
-  a weapon class and around 12 moves.
-- **Move data (JSON)**: startup/active/recovery frames, hit level (high/mid/low/throw), range,
-  damage, on-block advantage. Code converts these to labels like "fast poke", "slow but
-  long-range", or "punishable on block", and the labels go to Jev as candidate options.
-- **Core RPS**: strike beats throw, throw beats block, block beats strike. Sidestep beats
-  linear attacks, and tracking attacks beat sidestep. These are the decisions Jev mixes.
+| Defence | Beats | Loses to |
+|---|---|---|
+| Stand guard (standing still or walking back) | highs, mids | lows, throws |
+| Crouch guard | lows; ducks highs and throws | mids |
+| Sidestep | straight attacks | tracking attacks |
+| Walking forward or dashing | nothing (fast approach) | everything |
 
-### Stack options
-- **Browser: Three.js + Node proxy.** Fastest to iterate on and easy to share. Mixamo /
-  Quaternius rigs and animations work out of the box. Collision is custom, but it's only
-  capsules and hitboxes on a plane.
-- **Godot 4.** Better animation tooling (AnimationTree, hitbox editing) for a long-term
-  3D fighter. Call Jev through `HTTPRequest`. Fine for a desktop single-player build, but don't
-  ship your key in a public build.
+- **Frame data per move**: startup, active and recovery frames, hitstun, blockstun, guard
+  damage, range, width. Advantage on block = blockstun − (active + recovery). Moves at −10 or
+  worse are punishable.
+- **Strings**: `cancels: { slot: moveId }`. Input during the move; the follow-up comes out once
+  the previous hit connects. Follow-ups combo on hit (2 + startup < hitstun) but leave a gap on
+  block. High enders can be ducked, and long gaps can be interrupted.
+- **Counter-hits**: hitting during the opponent's startup gives ×1.3 damage and +8 hitstun,
+  and some moves launch on counter-hit. **Whiff punishes**: hitting during recovery.
+- **Launchers and juggles**: each juggle hit re-lofts the opponent lower, up to 4 hits. Combo
+  damage scaling goes 100/90/80/70/60/50%.
+- **Hitstop** (4–11 frames) and screen shake give impact. **Input buffer**: 8 frames.
+- **Guard gauge** drains on block and slowly regenerates. Empty means a guard break: 45
+  frames defenceless.
+- **Throws**: break by pressing throw within 20 frames. Throws whiff against crouching or
+  sidestepping opponents.
+- **Wake-up**: stand up guarding, roll, or a wake-up attack (punishable).
 
-## Milestones
-0. **Probe** (`probe.mjs`): measure p50/p95 latency and check the distributions are sane and
-   persona-sensitive. *This decides the brain tick rate.*
-1. **Grey-box**: two capsules, 6 moves each, hitboxes, health, plus the brain/reflex split
-   and the contingency cache. Use a local fallback brain so the game runs when the API is down.
-2. **Heroes**: rigged models, weapon movesets, hit sparks and hitstop.
-3. **Feel tuning**: temperature, reaction delay, persona text, habit tracking. Test by
-   playing it.
-4. **Polish**: show the AI's "mind" (a debug overlay with the probability bars). This is a
-   great streamer and selling feature.
+Characters (`public/engine/roster/`): **Kara** (axe berserker: slow, heavy, long reach),
+**Sen** (katana duelist: fast, safe, punishes), **Tove** (spear lancer: long pokes, weak up
+close). Each has 5 buttons, 1–2 strings and a launcher.
+
+**Balance check** (`npm run sim -- --equal-skill --matches 30`, same reflexes for everyone):
+every matchup lands between 40% and 60%, with 25–50 s rounds, ~15 hits, 4–13 blocks, 3–5
+counter-hits and 1–2 punishes per round, and combos up to 6 hits.
+
+## Status and next steps
+
+Done: probe, grey-box with full combat, three characters, Jev and local brains, AI mind
+panel, training mode, headless sim, tests.
+
+Next:
+- **Feel pass from real play**: tune walk speeds, pushback, hitstop and AI reaction times
+  against a human.
+- **Directional moves** (forward/back/down + button) to grow each move list toward ~12 moves.
+- **Rigged models and animations** (Mixamo / Quaternius). The renderer only reads the sim, so
+  this doesn't touch combat or AI.
+- **Jev experiments**: per-round "game plan" questions, confidence-gated hesitation and
+  feints, and a temperature slider in the menu.
+- **Sharing**: a Cloudflare Worker with static assets plus `/api/brain`, with the key stored
+  as a secret and rate limiting. (The EMT widget has the pattern.)
 
 ## Probe results (2026-10-10, jev-1.13.0, 20 runs per hero, ~920 input tokens)
 

@@ -94,6 +94,9 @@ function tick() {
   game.inputs = controllers.map((c) => c.update(world));
 }
 
+// Don't let a backgrounded tab pile up time and fast-forward on return.
+document.addEventListener("visibilitychange", () => { if (game) game.last = performance.now(); });
+
 function loop(now) {
   requestAnimationFrame(loop);
   if (!game) return;
@@ -277,6 +280,7 @@ window.addEventListener("keydown", (e) => {
   if ($("menu").style.display !== "none") { if (e.code === "Enter") startGame(); return; }
   if (e.code === "Tab") { const m = $("moves"); m.style.display = m.style.display === "block" ? "none" : "block"; }
   if (e.code === "KeyH") renderer.showHitboxes = !renderer.showHitboxes;
+  if (e.code === "KeyM" && !game?.training) { const m = $("mind"); m.style.display = m.style.display === "none" ? "flex" : "none"; }
   if (e.code === "KeyR" && game?.training) resetPositions();
   if (e.code === "Enter" && game?.world.phase === "over") { $("callout").style.opacity = 0; startGame(); }
 });
