@@ -14,16 +14,16 @@ export default {
     swings: {
       wristlock: { shape: "thrust", windup: 0.5, step: 0.2, hips: 0.2 }, // grab: a quick reach in
       draw: { shape: "slash", windup: 0.55, step: 0.12, hips: 0.3 }, // quick draw: tight and fast
-      draw2: { shape: "backslash", windup: 0.7, step: 0.15 },
+      draw2: { shape: "backslash", windup: 0.4, step: 0.15 },
       crescent: { shape: "chop", windup: 1.3, step: 0.3, drop: 0.12 },
       flick: { shape: "sweep", windup: 0.7, step: 0.15 },
-      rising: { shape: "rising", windup: 1.1, step: 0.22, hips: 0.25 },
+      rising: { shape: "slash", windup: 0.5, step: 0.22, hips: 0.35 }, // a rising forehand (the vertical rising arc wasn't holdable)
       ankle: { shape: "sweep", windup: 0.9, step: 0.2 },
       heaven: { shape: "rising", windup: 1.3, step: 0.18, drop: -0.05 },
       iai: { shape: "thrust", windup: 0.5, step: 0.6, drop: 0.1, lean: 0.3 }, // long committed lunge
-      riposte: { shape: "slash", windup: 0.4, step: 0.25 },
-      sheathe: { shape: "backslash", windup: 0.8, step: -0.3 },
-      wakeup: "slash",
+      riposte: { shape: "slash", windup: 0.3, step: 0.25, span: 1.2 },
+      sheathe: { shape: "slash", windup: 0.4, step: -0.3, span: 1.1 }, // a forehand cut while stepping back (the backhand wrapped the arm)
+      wakeup: { shape: "slash", windup: 0.6, span: 1.2 },
     },
   },
 

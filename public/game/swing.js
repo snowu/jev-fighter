@@ -14,6 +14,7 @@
 // Space: everything is solved in the fighter's group frame (metres): +x forward (towards the
 // opponent), +y up, +z the fighter's right side.
 import * as THREE from "three";
+import { HumanoidRig } from "./rig.js";
 
 export const HEIGHT = { high: 1.42, mid: 1.1, low: 0.38 }; // face, chest, shins
 
@@ -48,6 +49,8 @@ export function tuneSwing(spec, m) {
 const v = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const tmp = { a: v(), b: v(), c: v(), d: v(), q1: new THREE.Quaternion(), q2: new THREE.Quaternion() };
 const Y = new THREE.Vector3(0, 1, 0);
+const Z = new THREE.Vector3(0, 0, 1);
+
 const ease = (t) => t * t * (3 - 2 * t);
 const clamp01 = (t) => Math.min(1, Math.max(0, t));
 
@@ -168,6 +171,8 @@ export class SwingRig {
         lowerLen: lower.getWorldPosition(v()).distanceTo(hand.getWorldPosition(v())),
       };
     };
+    // Grips go through the measured rig (rig.js): fist on the shaft, straight wrist, closed fingers.
+    this.body = new HumanoidRig(root);
     this.right = arm(side);
     this.left = arm(side === "r" ? "l" : "r");
     const leg = (s) => {
@@ -225,7 +230,7 @@ export class SwingRig {
     const toWorld = (p) => frame.localToWorld(v().copy(p));
     const axis = (x, y, z) => toWorld(v(x, y, z)).sub(frame.localToWorld(v())).normalize();
     const bones = [this.spine, this.waist, this.right.upper, this.right.lower, this.right.hand, this.left.upper, this.left.lower, this.left.hand];
-    this.remember(bones);
+    this.remember([...bones, ...this.fingerBones(true)]);
     // Square the chest towards the opponent: the stance clips stand bladed (weapon shoulder back),
     // which made the arms reach across the body and fold into it.
     const across = v().subVectors(frame.worldToLocal(this.right.upper.getWorldPosition(v())), frame.worldToLocal(this.left.upper.getWorldPosition(v())));
@@ -240,9 +245,8 @@ export class SwingRig {
     const hand = v(chest.x + pose.hand[0], chest.y + pose.hand[1], chest.z + pose.hand[2] * k);
     const dir = v(pose.dir[0], pose.dir[1], pose.dir[2] * k).normalize();
     this.forwardW = axis(1, 0, 0);
-    this.reach(this.right, toWorld(hand));
-    const reached = frame.worldToLocal(this.right.hand.getWorldPosition(v()));
-    if (twoHanded) this.reach(this.left, toWorld(v().copy(reached).addScaledVector(dir, -offHand)));
+    const dirW = toWorld(v().copy(dir)).sub(frame.localToWorld(v())).normalize();
+    const reached = frame.worldToLocal(this.grip(this.right, toWorld(hand), dirW));
     const q = new THREE.Quaternion().setFromUnitVectors(Y, dir);
     // Edge faces the opponent (forward), or up for a raised block.
     const edge = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
@@ -251,29 +255,80 @@ export class SwingRig {
       const roll = Math.atan2(v().crossVectors(edge, wantEdge).dot(dir), edge.dot(wantEdge));
       q.premultiply(new THREE.Quaternion().setFromAxisAngle(dir, roll));
     }
-    this.orientHands(frame, q, twoHanded);
-    this.blend(bones, w);
+    this.blend([...bones, ...this.fingerBones(twoHanded)], w);
     root.updateMatrixWorld(true);
-    return { position: reached, quaternion: q, weight: w };
+    // Where the fist really is after blending with the clip pose: the weapon goes there.
+    const fist = frame.worldToLocal(this.body.gripFrame(this.body.arms.r).center);
+    return { position: fist, quaternion: q, weight: 1 };
   }
 
   /**
-   * Reach an arm to `target` (world) with the elbow bent away from the torso: outward from the
-   * spine's axis and down. Targets inside the torso are pushed out in front of it first.
+   * Hold the weapon shaft at `grip` (world point on the shaft) along `dir` (world) with this arm,
+   * via the measured rig (rig.js). Grips inside the torso are pushed out to its front first, and
+   * the elbow is steered outward and down from the torso. Returns the fist centre reached.
    */
-  reach(arm, target) {
+  grip(arm, grip, dir) {
+    const body = this.bodyArm(arm);
     const a = this.pelvis.getWorldPosition(v()), b = this.neck.getWorldPosition(v());
     const ab = v().subVectors(b, a);
     const onAxis = (p) => a.clone().addScaledVector(ab, Math.min(1, Math.max(0, v().subVectors(p, a).dot(ab) / ab.lengthSq())));
-    // Push targets that are inside the torso out to its front (a stable direction: no flips).
-    const t = target.clone();
-    const fromAxis = v().subVectors(t, onAxis(t));
-    const ahead = fromAxis.dot(this.forwardW);
-    if (fromAxis.length() < 0.22) t.addScaledVector(this.forwardW, Math.max(0, 0.22 - ahead));
+    const g = grip.clone();
+    const fromAxis = v().subVectors(g, onAxis(g));
+    this.lastPushed = fromAxis.length() < 0.22;
+    if (this.lastPushed) g.addScaledVector(this.forwardW, Math.max(0, 0.22 - fromAxis.dot(this.forwardW)));
     const shoulder = arm.upper.getWorldPosition(v());
     const outward = v().subVectors(shoulder, onAxis(shoulder)).normalize();
-    const down = ab.clone().normalize().negate();
-    solveArm(arm, t, outward.multiplyScalar(0.9).addScaledVector(down, 0.8).addScaledVector(this.forwardW, 0.25).normalize());
+    const pole = outward.multiplyScalar(0.9).addScaledVector(ab.clone().normalize(), -0.8).addScaledVector(this.forwardW, 0.25).normalize();
+    return this.body.holdShaft(body, g, dir, pole);
+  }
+
+  bodyArm(arm) { return arm === this.right ? this.body.arms.r : this.body.arms.l; }
+
+  /**
+   * After the weapon's final transform for this frame is known (guard, swing or a blend of them):
+   * put the off hand on its shaft, blended in by `w`. `pos`/`quat` are in the fighter frame.
+   */
+  attachOffHand(frame, pos, quat, spacing, w) {
+    if (w <= 0.01) return;
+    const bones = [this.left.upper, this.left.lower, this.left.hand, ...this.bodyArm(this.left).fingers.map((f) => f.bone)];
+    this.remember(bones);
+    this.forwardW = frame.localToWorld(v(1, 0, 0)).sub(frame.localToWorld(v())).normalize();
+    const dirW = v(0, 1, 0).applyQuaternion(frame.getWorldQuaternion(new THREE.Quaternion()).multiply(quat)).normalize();
+    this.offHandGrip(frame.localToWorld(pos.clone()), dirW, spacing);
+    this.blend(bones, w);
+    frame.updateMatrixWorld(true);
+  }
+
+  /**
+   * Second hand on the shaft: try the preferred spacing from the first hand, then closer and
+   * further along the shaft (a real off hand slides on the haft), and keep the first reachable.
+   * `main` is the first fist (world), `dirW` the shaft direction (world).
+   */
+  offHandGrip(main, dirW, spacing) {
+    const tries = [1, 0.65, 1.4].map((k) => spacing * k);
+    let fallback = null;
+    for (const sp of tries) {
+      const got = this.grip(this.left, v().copy(main).addScaledVector(dirW, -sp), dirW);
+      const off = v().subVectors(got, main);
+      const onShaft = off.addScaledVector(dirW, -off.dot(dirW)).length() < 0.03;
+      if (this.body.lastReached && !this.lastPushed && onShaft) { this.offReleased = false; return got; } // really on the shaft
+      fallback ??= sp;
+    }
+    // Out of reach (wide swings, long reaches): let go, and bring the fist back to the chest.
+    this.offReleased = true;
+    const arm = this.body.arms.l;
+    const chest = this.spine.getWorldPosition(v());
+    const rest = chest.addScaledVector(this.forwardW, 0.3).add(v(0, -0.08, 0));
+    const shoulder = this.left.upper.getWorldPosition(v());
+    const down = v(0, -1, 0);
+    const outward = v().subVectors(shoulder, this.spine.getWorldPosition(v())).setY(0).normalize();
+    this.body.reachTo(arm, rest, outward.multiplyScalar(0.8).add(down).normalize());
+    return null;
+  }
+
+  /** Bones a grip touches beyond the arm chain (fingers), for remember/blend/restore. */
+  fingerBones(twoHanded) {
+    return (twoHanded ? [this.right, this.left] : [this.right]).flatMap((a) => this.bodyArm(a).fingers.map((f) => f.bone));
   }
 
   /** Fix the weapon-arm side from the current (clip) pose. Call before any IK touches it. */
@@ -282,17 +337,6 @@ export class SwingRig {
     frame.updateMatrixWorld(true);
     const r = frame.worldToLocal(this.right.upper.getWorldPosition(v())), l = frame.worldToLocal(this.left.upper.getWorldPosition(v()));
     this.sideK = Math.sign(r.z - l.z) || 1;
-  }
-
-  /** Turn both hands so the weapon (orientation q, fighter frame) runs through the fists. */
-  orientHands(frame, q, twoHanded) {
-    if (!this.gripInv) return;
-    const handQ = frame.getWorldQuaternion(new THREE.Quaternion()).multiply(q).multiply(this.gripInv);
-    for (const arm of twoHanded ? [this.right, this.left] : [this.right]) {
-      const h = arm.hand;
-      h.quaternion.copy(h.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(handQ));
-      h.updateMatrixWorld(true);
-    }
   }
 
   /** Rotate a bone in world space about `axis` (world) by `angle`. */
@@ -329,7 +373,7 @@ export class SwingRig {
 
     const bones = [this.pelvis, this.spine, this.waist, this.right.upper, this.right.lower, this.right.hand,
       this.left.upper, this.left.lower, this.left.hand, ...this.legs.flatMap((l) => [l.upper, l.lower, l.hand])];
-    this.remember(bones);
+    this.remember([...bones, ...this.fingerBones(true)]);
 
     // Weight: back onto the rear foot while coiling, forward with the step, down on impact.
     // Low attacks sink further so the hands can reach a shin-height grip.
@@ -354,20 +398,27 @@ export class SwingRig {
     const k = this.sideK;
     const pose = (t) => { const p = swingPose(shape, P, shoulderG.y, t, tune.span); p.tip.z *= k; p.dir.z *= k; return p; };
     const { tip, dir } = pose(s);
-    const reach = (this.right.upperLen + this.right.lowerLen) * 0.98;
+    // Grip reach: a fist held square to the shaft reaches less far than the straight arm.
+    const reach = (this.right.upperLen + this.right.lowerLen) * 0.72;
     let len = weaponTip;
     const minHand = 0.28;
     let hand = v().copy(tip).addScaledVector(dir, -len);
     if (hand.x < minHand && shape === "thrust") { len = Math.max(0.25, tip.x - minHand); hand = v().copy(tip).addScaledVector(dir, -len); }
 
     // Lunge further if the shoulder still can't reach the grip.
-    const shortfall = Math.min(0.6, Math.max(0, hand.distanceTo(shoulderG) - reach)) * w;
+    const shortfall = Math.min(0.8, Math.max(0, hand.distanceTo(shoulderG) - reach)) * w; // smooth in the swing phase: no pops
     if (shortfall > 0) { holder.position.x += shortfall; holder.updateMatrixWorld(true); }
     const lunge = holder.position.x;
-    // Still out of reach (deep low sweeps): slide the hand up the shaft rather than let go.
+    // Still out of reach (big wind-ups above/behind the head, deep low sweeps)? Keep the planned
+    // fist inside the arm's grip reach: pull it in towards the shoulder and carry the tip with it.
+    // The path shrinks a little; the grips stay real. (At the hit frame the lunge covers reach.)
     const shoulderNow = frame.worldToLocal(this.right.upper.getWorldPosition(v()));
-    const excess = hand.distanceTo(shoulderNow) - reach;
-    if (excess > 0) { len = Math.max(0.2, len - Math.min(0.45, excess)); hand = v().copy(tip).addScaledVector(dir, -len); }
+    const out = hand.distanceTo(shoulderNow) - reach;
+    if (out > 0) {
+      const pull = v().subVectors(shoulderNow, hand).normalize().multiplyScalar(out);
+      hand.add(pull);
+      tip.add(pull);
+    }
 
     // Legs: rear foot stays planted where the stance put it; the lead foot steps (in an arc) by the
     // step plus any extra lunge, so the hips stay between the feet. Feet stay flat.
@@ -383,11 +434,15 @@ export class SwingRig {
     // Arms: weapon hand onto the grip. If the arm can't quite get there, the weapon follows the
     // hand (same direction) rather than floating free; then the off hand takes the handle below.
     this.forwardW = axis(1, 0, 0);
-    this.reach(this.right, toWorld(hand));
-    const reached = frame.worldToLocal(this.right.hand.getWorldPosition(v()));
-    const slip = v().subVectors(reached, hand);
-    if (slip.length() > 0.02) { tip.add(slip); hand.copy(reached); }
-    if (twoHanded) this.reach(this.left, toWorld(v().copy(hand).addScaledVector(dir, -(offHand ?? 0.3))));
+    const dirW = toWorld(v().copy(dir)).sub(frame.localToWorld(v())).normalize();
+    const reached = frame.worldToLocal(this.grip(this.right, toWorld(hand), dirW));
+    // Hand first: if the grip wasn't reachable the weapon goes where the fist is, along the
+    // fist's axis, so the hand never lets go (the strike check still holds the tip to the hit).
+    // If the grip wasn't fully reachable the weapon keeps the swing's direction and sits in the fist
+    // as reached (the wrist limit costs a little grip angle, not the strike).
+    hand.copy(reached);
+    tip.copy(hand).addScaledVector(dir, len);
+
 
     // Weapon: grip at the hand, axis towards the tip, edge facing the direction of the swing.
     // If following the hand dropped the tip into the floor, tilt the weapon up until it rests on it.
@@ -402,9 +457,10 @@ export class SwingRig {
       const roll = Math.atan2(v().crossVectors(edge, wantEdge).dot(dir), edge.dot(wantEdge));
       q.premultiply(new THREE.Quaternion().setFromAxisAngle(dir, roll));
     }
-    this.orientHands(frame, q, twoHanded);
-    this.blend(bones, w);
+    this.blend([...bones, ...this.fingerBones(twoHanded)], w);
     root.updateMatrixWorld(true);
-    return { position: v().copy(hand).addScaledVector(dir, -(weaponTip - len)), quaternion: q, weight: w, tip, lunge };
+    // Hand first: the weapon sits in the fist as it really ended up (after blending).
+    const fist = frame.worldToLocal(this.body.gripFrame(this.body.arms.r).center);
+    return { position: fist.addScaledVector(dir, -(weaponTip - len)), quaternion: q, weight: 1, blend: w, tip, lunge };
   }
 }

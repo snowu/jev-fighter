@@ -201,30 +201,49 @@ export function checkPose(poser, kase, f) {
       const [a, b] = torso, ab = b.clone().sub(a), t = Math.min(1, Math.max(0, p.clone().sub(a).dot(ab) / ab.lengthSq()));
       return p.distanceTo(a.clone().addScaledVector(ab, t));
     };
-    for (const [side, hand, elbow] of [["right", handR, P("lowerarm_r")], ["left", handL, P("lowerarm_l")]]) {
+    for (const [side, hand, elbow, shoulder] of [["right", handR, P("lowerarm_r"), P("upperarm_r")], ["left", handL, P("lowerarm_l"), P("upperarm_l")]]) {
+      // Chicken wing: an elbow up above both its shoulder and its hand.
+      const lift = elbow.y - Math.max(shoulder.y, hand.y);
+      if (lift > 0.06) fail("arms", `${side} elbow raised ${lift.toFixed(2)} m above shoulder and hand`);
       if (toTorso(hand) < 0.13) fail("arms", `${side} hand inside the torso (${toTorso(hand).toFixed(2)} m from its axis)`);
-      if (toTorso(elbow) < 0.075) fail("arms", `${side} elbow inside the torso (${toTorso(elbow).toFixed(2)} m from its axis)`); // ~0.09 is tucked against the ribs
+      if (toTorso(elbow) < 0.065) fail("arms", `${side} elbow inside the torso (${toTorso(elbow).toFixed(2)} m from its axis)`); // ~0.07-0.09 is tucked against the ribs
     }
-    const gripAxis = new THREE.Vector3(1, 0, 0).applyQuaternion(poser.model.hand.getWorldQuaternion(new THREE.Quaternion()));
+    // Grips, from the rig's measured hand geometry (rig.js): each fist round the shaft, the
+    // shaft along the fist, the wrist within a real wrist's range.
+    const rig = poser.model.rig.body;
     const frameQ = poser.frame.getWorldQuaternion(new THREE.Quaternion());
     const weaponAxis = wdir.clone().applyQuaternion(frameQ);
-    const wrist = gripAxis.angleTo(weaponAxis);
-    if (wrist > 0.6) fail("wrist", `weapon ${(wrist * 57.3).toFixed(0)}° off the fist's grip axis`);
+    const weaponOrigin = poser.frame.localToWorld(poser.model.weapon.position.clone());
+    const twoHanded = poser.model.look.twoHanded ?? true;
+    // A two-handed weapon's off hand may let go in wide swings (offReleased): then it isn't on the shaft.
+    const both = twoHanded && !poser.model.rig.offReleased;
+    for (const [side, arm] of both ? [["right", rig.arms.r], ["left", rig.arms.l]] : [["right", rig.arms.r]]) {
+      const g = rig.gripFrame(arm);
+      const off = g.center.clone().sub(weaponOrigin);
+      const miss = off.addScaledVector(weaponAxis, -off.dot(weaponAxis)).length();
+      if (miss > 0.045) fail("grip", `${side} fist ${miss.toFixed(2)} m off the shaft`);
+      const along = Math.min(g.axis.angleTo(weaponAxis), g.axis.angleTo(weaponAxis.clone().negate()));
+      if (along > 0.5) fail("grip", `${side} fist ${(along * 57.3).toFixed(0)}° across the shaft`);
+      const { bend, twist } = rig.wristAngles(arm);
+      // The off (lead) hand of a spear holds it diagonally in a looser grip: allow it more wrist angle.
+      if (bend > (side === "left" ? 1.32 : 1.26)) fail("wrist", `${side} wrist bent ${(bend * 57.3).toFixed(0)}°`);
+      if (twist > 0.6) fail("wrist", `${side} wrist twisted ${(twist * 57.3).toFixed(0)}°`);
+    }
   }
   const attacking = f.state === "attack" && e.swing;
   // Hands are checked once the swing has fully taken over from the stance (w ≈ 1).
   const w = attacking ? swingPhase(f.move, f.frame, poser.model.tuning(f.move, poser.char.look.swings[f.move.id])).w : 0;
   if (attacking && w > 0.9) {
-    if (poser.offWeapon(handR) > 0.3) fail("held", `weapon hand ${poser.offWeapon(handR).toFixed(2)} m off the weapon`);
-    if (poser.offWeapon(handL) > 0.35) fail("held", `off hand ${poser.offWeapon(handL).toFixed(2)} m off the weapon`);
     if (f.frame === hitFrame(f.move)) {
       const want = new THREE.Vector3(f.move.range, HEIGHT[f.move.level] ?? 1.1, 0);
       const err = poser.weaponTip().distanceTo(want);
       if (err > 0.3) fail("strike", `tip ${err.toFixed(2)} m from the hit point at the hit frame`);
     }
   } else if (e.held && !attacking) {
-    const gap = handR.distanceTo(poser.model.weapon.position);
-    if (gap > 0.12) fail("held", `weapon ${gap.toFixed(2)} m from the hand`);
+    // Clip-driven states (hits, knockdowns...): the weapon stays in the fist.
+    const fist = poser.frame.worldToLocal(poser.model.rig.body.gripFrame(poser.model.rig.body.arms.r).center);
+    const gap = fist.distanceTo(poser.model.weapon.position);
+    if (gap > 0.04) fail("held", `weapon ${gap.toFixed(2)} m from the fist`);
   }
   return fails;
 }

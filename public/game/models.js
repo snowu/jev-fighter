@@ -51,7 +51,7 @@ const GUARDS = {
   katana: { stand: { hand: [0.42, -0.12, 0.06], dir: [0.82, 0.55, -0.12] }, high: { hand: [0.38, 0.22, 0.12], dir: [0.3, 0.35, -0.89] }, low: { hand: [0.4, -0.38, 0.08], dir: [0.45, -0.45, -0.77] }, offHand: 0.14 },
   axe: { stand: { hand: [0.4, -0.18, 0.08], dir: [0.45, 0.86, -0.2] }, high: { hand: [0.38, 0.2, 0.12], dir: [0.3, 0.3, -0.9] }, low: { hand: [0.4, -0.38, 0.08], dir: [0.4, -0.5, -0.77] }, offHand: -0.32 },
   // Spear: the off (lead) hand sits forward on the shaft, so offHand is negative.
-  spear: { stand: { hand: [0.3, -0.15, 0.1], dir: [0.97, 0.22, -0.06] }, high: { hand: [0.38, 0.2, 0.12], dir: [0.3, 0.3, -0.9] }, low: { hand: [0.4, -0.35, 0.08], dir: [0.75, -0.22, -0.62] }, offHand: -0.42 },
+  spear: { stand: { hand: [0.3, -0.15, 0.1], dir: [0.97, 0.22, -0.06] }, high: { hand: [0.38, 0.2, 0.12], dir: [0.3, 0.3, -0.9] }, low: { hand: [0.4, -0.35, 0.08], dir: [0.75, -0.22, -0.62] }, offHand: -0.26 },
 };
 
 // Clips for every non-attack state.
@@ -453,7 +453,7 @@ export class FighterModel {
     const clip = this.assets.clips.get(this.cur.name);
     if (clip) this.gripQ.slerp(this.grips[gripFor(clip)], 0.35);
     const frameQ = frame.getWorldQuaternion(new THREE.Quaternion()).invert();
-    const pos = frame.worldToLocal(this.hand.getWorldPosition(new THREE.Vector3()));
+    const pos = frame.worldToLocal(this.rig.body.gripFrame(this.rig.body.arms.r).center); // in the fist
     const quat = frameQ.multiply(this.hand.getWorldQuaternion(new THREE.Quaternion())).multiply(this.gripQ);
 
     // 2. Guard: weapon held towards the opponent, eased in and out, poses blended smoothly.
@@ -469,7 +469,7 @@ export class FighterModel {
       const breathe = Math.sin(this.clock * 2.2) * 0.012; // a little life in the stance
       const pose = { hand: [this.guardPose.hand[0], this.guardPose.hand[1] + breathe, this.guardPose.hand[2]], dir: this.guardPose.dir };
       const gd = this.rig.guard({ frame, root: this.root, pose, w: this.guardW, twoHanded, offHand: guards.offHand ?? 0.3 });
-      pos.lerp(gd.position, this.guardW);
+      pos.copy(gd.position); // the fist as it really is (the guard already blended the arms)
       quat.slerp(gd.quaternion, this.guardW);
     }
 
@@ -480,8 +480,8 @@ export class FighterModel {
         frame, holder: this.holder, root: this.root, tune, m: f.move, target,
         weaponTip: this.weaponTip, twoHanded, phase: swingPhase(f.move, f.frame, tune), offHand: guards.offHand,
       });
-      pos.lerp(swing.position, swing.weight);
-      quat.slerp(swing.quaternion, swing.weight);
+      pos.copy(swing.position); // in the fist as posed
+      quat.slerp(swing.quaternion, swing.blend);
       this.lastTip = swing.tip;
     }
     // Blends between poses can still dip the tip into the floor: tilt it up to rest on it.
@@ -495,5 +495,8 @@ export class FighterModel {
     }
     this.weapon.position.copy(pos);
     this.weapon.quaternion.copy(quat);
+    // Off hand last, onto the weapon as it finally is this frame: always on the shaft.
+    const holdW = Math.max(this.guardW, want.swing && f.state === "attack" ? swingPhase(f.move, f.frame, this.tuning(f.move, want.swing)).w : 0);
+    if (twoHanded) this.rig.attachOffHand(frame, pos, quat, guards.offHand ?? 0.3, holdW);
   }
 }

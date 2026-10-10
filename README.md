@@ -33,6 +33,25 @@ in `npm test` (`tools/anim.test.mjs`):
   - no pops between frames
   - hits visibly recoil
 
+**Rig baseline** (`public/game/rig.js`): every grip goes through a measured humanoid rig. At
+load it measures, from the model's own bind pose, the arm lengths, each hand's fist centre, the
+diagonal line a held shaft takes through the fist, the palm side, and how each finger curls. No
+bone-axis conventions are assumed. `holdShaft(arm, point, dir, pole)` puts a fist round a shaft:
+- the forearm approaches at a natural angle, so the wrist stays inside a real wrist's range
+- the forearm takes the roll, so wrists don't twist like a candy wrapper
+- elbows hang and stay off the torso
+- the fingers close round the shaft
+
+When a grip is out of reach, the weapon follows the fist, so a hand never lets go. Two-handed
+weapons put the off hand on the weapon's final position each frame, sliding along the shaft; in
+wide swings it lets go to a fist at the chest. `tools/rig.test.mjs` checks the solver on ~320
+random grips per run.
+
+**Known issues** (`tools/anim-known.json`): animation-check failures accepted for now, mostly
+wind-up frames of a few swings where these short-armed mannequins can't hold the planned path.
+New failures fail `npm test` (and block deploys), and fixed ones must be removed, so the list only
+shrinks. Regenerate after a deliberate change with `UPDATE_KNOWN=1 npm test`.
+
 **Deploys:** every push to `main` runs the tests, then `tools/build-pages.mjs`, then publishes to
 Pages. The build adds `?v=<commit>` to every module and asset URL, and pages load through a
 never-cached `version.json`, so a deploy shows up immediately instead of after GitHub's

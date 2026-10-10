@@ -15,10 +15,10 @@ export default {
       trip: { shape: "thrust", windup: 0.5, step: 0.2, hips: 0.2 }, // grab: a quick reach in
       poke: { shape: "thrust", windup: 0.85, step: 0.1, hips: 0.2 }, // keep-away poke: barely commits
       poke2: { shape: "thrust", windup: 0.8, step: 0.12, hips: 0.2 },
-      tailsweep: { shape: "sweep", windup: 1.1, step: 0.15 },
-      arc: { shape: "sweep", windup: 1.05, step: 0.2, hips: 0.55 },
+      tailsweep: { shape: "sweep", windup: 0.6, step: 0.15 },
+      arc: { shape: "sweep", windup: 0.8, step: 0.2, hips: 0.55 },
       footstab: { shape: "thrust", windup: 0.9, step: 0.15 },
-      vault: { shape: "rising", windup: 1.2, step: 0.45, drop: -0.08 },
+      vault: { shape: "thrust", windup: 0.8, step: 0.45, drop: -0.04 }, // spear-braced vault: a driving thrust
       lunge: { shape: "thrust", windup: 1.4, step: 0.65, drop: 0.1, lean: 0.3 }, // full-extension lunge
       retreat: { shape: "thrust", windup: 0.6, step: -0.35 },
       wakeup: "thrust",
