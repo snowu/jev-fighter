@@ -4,6 +4,9 @@ A 1v1 3D weapon fighter where the opponent's decisions come from TypeSafe's **Je
 Placeholder graphics, real combat: strings, launchers and juggles, counter-hits,
 whiff punishes, sidesteps, throws and throw breaks, guard breaks, and frame data.
 
+**Play the prototype:** https://snowu.github.io/jev-fighter/ (static build with the local AI
+brain; Jev needs the local server below, because the API key must stay server-side).
+
 ## Run
 
 ```sh

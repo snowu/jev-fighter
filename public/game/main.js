@@ -23,6 +23,7 @@ try { settings = { ...DEFAULTS, ...JSON.parse(localStorage.getItem("jevfighter.s
 const save = () => { try { localStorage.setItem("jevfighter.settings", JSON.stringify(settings)); } catch {} };
 
 let jevAvailable = false;
+let hasServer = false; // false on static hosting (GitHub Pages): no /api proxy, so no Jev
 const roster = Object.values(ROSTER).map((c) => [c.id, c.name, c.title]);
 const OPTIONS = {
   mode: [["versus", "You vs AI"], ["watch", "AI vs AI", "watch two brains fight"], ["training", "Training", "dummy + frame data"]],
@@ -40,7 +41,7 @@ function renderMenu() {
       const b = document.createElement("button");
       b.className = settings[key] === value ? "on" : "";
       b.innerHTML = `${label}${sub ? `<small>${sub}</small>` : ""}`;
-      if (key === "brain" && value === "jev" && !jevAvailable) { b.disabled = true; b.innerHTML = `Jev<small>no API key on server</small>`; }
+      if (key === "brain" && value === "jev" && !jevAvailable) { b.disabled = true; b.innerHTML = `Jev<small>${hasServer ? "no API key on server" : "run locally (npm start)"}</small>`; }
       b.onclick = () => { settings[key] = value; save(); renderMenu(); };
       el.appendChild(b);
     }
@@ -52,7 +53,7 @@ function showMenu(show) {
   if (game) game.paused = show;
 }
 
-fetch("/api/status").then((r) => r.json()).then((s) => { jevAvailable = s.jev; })
+fetch("/api/status").then((r) => r.json()).then((s) => { hasServer = true; jevAvailable = s.jev; })
   .catch(() => {}).finally(() => {
     if (!jevAvailable && settings.brain === "jev") settings.brain = "local";
     renderMenu();
