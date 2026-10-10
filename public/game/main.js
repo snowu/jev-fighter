@@ -297,6 +297,8 @@ function renderMoves() {
 // ---- global keys -------------------------------------------------------------------
 
 window.addEventListener("keydown", (e) => {
+  // F3: open the animation lab in a new tab (works from the menu and in game).
+  if (e.code === "F3") { e.preventDefault(); window.open("./lab.html", "_blank"); return; }
   if (e.code === "Escape") { if (game) showMenu($("menu").style.display === "none"); return; }
   if ($("menu").style.display !== "none") { if (e.code === "Enter" && !startBtn.disabled) startGame(); return; }
   if (e.code === "Tab") { const m = $("moves"); m.style.display = m.style.display === "block" ? "none" : "block"; }

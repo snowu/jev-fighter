@@ -54,7 +54,7 @@ on the server: the page talks to `/api/brain`, and `server.mjs` forwards that to
 | `I` | throw. Press it right after being grabbed to break the throw. |
 | `T` | taunt (you're open to a counter-hit) |
 | hold an attack button / hold back while knocked down | wake-up attack / roll |
-| `Tab` | move list with frame data · `H` hitboxes · `P` PS1 filter · `M` AI mind panel · `Esc` menu · `R` reset (training) |
+| `Tab` | move list with frame data · `H` hitboxes · `P` PS1 filter · `M` AI mind panel · `F3` animation lab · `Esc` menu · `R` reset (training) |
 
 **Strings**: press the next button during a move, e.g. Kara `J J K`. A follow-up comes out
 once the previous hit connects. It's a true combo on hit, but there's a gap on block that
