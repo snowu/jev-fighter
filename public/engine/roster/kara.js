@@ -19,12 +19,12 @@ export default {
       jab: { shape: "thrust", windup: 0.6, step: 0.12 }, // haft jab: short, no commitment
       jab2: { shape: "thrust", windup: 0.7, step: 0.15 },
       finisher: { shape: "slash", windup: 0.8, step: 0.3, hips: 0.5, span: 1.5 },
-      overhead: { shape: "chop", windup: 1, step: 0.42, drop: 0.22, lean: 0.4, hips: 0.12 }, // big telegraphed cleave
+      overhead: { shape: "chop", windup: 1.8, step: 0.42, drop: 0.22, lean: 0.4, hips: 0.12 }, // big telegraphed cleave
       shin: { shape: "sweep", windup: 1.2, step: 0.25 },
-      lift: { shape: "rising", windup: 0.45, step: 0.2, hips: 0.15 },
+      lift: { shape: "rising", windup: 0.7, step: 0.2, hips: 0.15 },
       whirlwind: { shape: "spin", windup: 0.9, hips: 0.5, step: 0.12, span: 2 },
       bullrush: { shape: "thrust", windup: 0.5, step: 0.55, drop: 0.08, lean: 0.3 }, // shoulder-first charge
-      splitter: { shape: "chop", windup: 1.6, step: 0.5, drop: 0.18, lean: 0.3, hips: 0.3 },
+      splitter: { shape: "chop", windup: 1.9, step: 0.5, drop: 0.18, lean: 0.3, hips: 0.3 },
       wakeup: { shape: "slash", windup: 0.6 },
     },
   },

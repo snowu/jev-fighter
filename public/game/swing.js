@@ -17,6 +17,7 @@ import * as THREE from "three";
 import { HumanoidRig } from "./rig.js";
 
 const TORSO_CLEARANCE = 0.22; // grips (fist centres) stay this far out from the spine's axis
+const WRIST_CLEARANCE = 0.145; // and wrists this far (the lab flags hands under 0.13 m)
 const GRIP_TOLERANCE = 0.42; // ~24°: how far a held shaft may sit off the fist's grip axis
 export const HEIGHT = { high: 1.42, mid: 1.1, low: 0.38 }; // face, chest, shins
 
@@ -281,7 +282,18 @@ export class SwingRig {
     const shoulder = arm.upper.getWorldPosition(v());
     const outward = v().subVectors(shoulder, onAxis(shoulder)).normalize();
     const pole = outward.multiplyScalar(0.9).addScaledVector(ab.clone().normalize(), -0.8).addScaledVector(this.forwardW, 0.25).normalize();
-    return this.body.holdShaft(body, g, dir, pole);
+    let got = this.body.holdShaft(body, g, dir, pole);
+    // The fist clears the torso, but a wrist bent back toward the body can still sink into it:
+    // push the grip further out by the shortfall and solve again.
+    for (let i = 0; i < 2; i++) {
+      const wrist = arm.hand.getWorldPosition(v());
+      const short = WRIST_CLEARANCE - v().subVectors(wrist, onAxis(wrist)).length();
+      if (short <= 0) break;
+      this.lastPushed = true;
+      g.addScaledVector(this.forwardW, short + 0.01);
+      got = this.body.holdShaft(body, g, dir, pole);
+    }
+    return got;
   }
 
   bodyArm(arm) { return arm === this.right ? this.body.arms.r : this.body.arms.l; }
