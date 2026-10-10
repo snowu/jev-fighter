@@ -7,6 +7,7 @@ import { LocalBrain, JevBrain, proxyTransport } from "../engine/ai/brains.js";
 import { makeRng } from "../engine/ai/sampling.js";
 import { HumanController } from "./input.js";
 import { Renderer } from "./render.js";
+import { preloadModels } from "./models.js";
 
 const $ = (id) => document.getElementById(id);
 const TICK_MS = 1000 / 60;
@@ -63,6 +64,15 @@ renderMenu();
 const renderer = new Renderer(document.createElement("canvas"));
 document.body.prepend(renderer.renderer.domElement);
 let game = null;
+
+// Models load in the background; FIGHT waits for them (capsules are the fallback if loading fails).
+const startBtn = $("start");
+startBtn.disabled = true;
+startBtn.textContent = "LOADING MODELS…";
+const modelsReady = preloadModels(Object.values(ROSTER))
+  .then((models) => { renderer.models = models; })
+  .catch((err) => console.warn("models failed to load, using placeholder capsules", err))
+  .finally(() => { startBtn.disabled = false; startBtn.textContent = "FIGHT"; });
 
 function makeBrain() {
   return settings.brain === "jev" && jevAvailable ? new JevBrain({ transport: proxyTransport() }) : new LocalBrain();
@@ -285,9 +295,10 @@ function renderMoves() {
 
 window.addEventListener("keydown", (e) => {
   if (e.code === "Escape") { if (game) showMenu($("menu").style.display === "none"); return; }
-  if ($("menu").style.display !== "none") { if (e.code === "Enter") startGame(); return; }
+  if ($("menu").style.display !== "none") { if (e.code === "Enter" && !startBtn.disabled) startGame(); return; }
   if (e.code === "Tab") { const m = $("moves"); m.style.display = m.style.display === "block" ? "none" : "block"; }
   if (e.code === "KeyH") renderer.showHitboxes = !renderer.showHitboxes;
+  if (e.code === "KeyP") callout(renderer.togglePS1() ? "PS1 ON" : "PS1 OFF", "#fff", 600);
   if (e.code === "KeyM" && !game?.training) { const m = $("mind"); m.style.display = m.style.display === "none" ? "flex" : "none"; }
   if (e.code === "KeyR" && game?.training) resetPositions();
   if (e.code === "Enter" && game?.world.phase === "over") { $("callout").style.opacity = 0; startGame(); }
@@ -298,6 +309,8 @@ $("start").onclick = startGame;
 window.__jev = {
   get game() { return game; },
   start: (opts = {}) => { Object.assign(settings, opts); startGame(); },
+  ready: () => modelsReady,
+  get renderer() { return renderer; },
   async advance(frames = 1) {
     for (let i = 0; i < frames; i++) {
       tick();

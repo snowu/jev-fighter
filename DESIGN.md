@@ -159,8 +159,11 @@ Next:
 - **More moves**: down + button, and more strings per directional starter (toward ~12 moves each).
 - **More signatures** for new characters, e.g. stances, projectiles, a meter-based super, or
   wall interactions.
-- **Rigged models and animations** (Mixamo / Quaternius). The renderer only reads the sim, so
-  this doesn't touch combat or AI.
+- **Models**: KayKit (CC0) rigged models with a PS1 pass are in. Next steps:
+  - per-character animation sets (all three share one rig and clip library today)
+  - dedicated low attacks instead of an additive squat layer
+  - less chibi proportions
+  - a real arena
 - **Jev experiments**: per-round "game plan" questions, confidence-gated hesitation and
   feints, and a temperature slider in the menu.
 - **Sharing**: a Cloudflare Worker with static assets plus `/api/brain`, with the key stored

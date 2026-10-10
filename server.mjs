@@ -10,7 +10,7 @@ import { extname, join, normalize } from "node:path";
 const PORT = Number(process.env.PORT ?? 5173);
 const ROOT = join(import.meta.dirname, "public");
 const KEY = process.env.TYPESAFE_API_KEY;
-const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml" };
+const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".glb": "model/gltf-binary" };
 
 async function brain(req, res) {
   let body = "";

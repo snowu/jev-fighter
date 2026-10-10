@@ -8,7 +8,16 @@ export default {
     "Sen, a patient katana duelist. Waits for mistakes and punishes every whiff. Calm under pressure, sidesteps slow attacks, rarely gambles.",
   signature:
     "Parry: her Mirror Stance deflects any high or mid attack into a free launching riposte, but low attacks and throws beat it and a parry that catches nothing leaves her wide open. The quickest feet in the roster: fast sidesteps and dashes.",
-  look: { build: [0.84, 1.04], accent: 0xece4cf, weapon: "katana", weaponLength: 1.0, parts: ["topknot", "sash", "scabbard"] },
+  look: {
+    build: [0.84, 1.04], accent: 0xece4cf, weapon: "katana", weaponLength: 1.0, parts: ["topknot", "sash", "scabbard"], // capsule fallback
+    model: "Knight", scale: 0.9, headScale: 0.7, show: ["1H_Sword", "Knight_Cape"],
+    moves: {
+      draw: "1H_Melee_Attack_Slice_Horizontal", draw2: "1H_Melee_Attack_Slice_Diagonal", crescent: "2H_Melee_Attack_Slice",
+      flick: "1H_Melee_Attack_Slice_Horizontal", rising: "1H_Melee_Attack_Slice_Diagonal", ankle: "1H_Melee_Attack_Slice_Horizontal",
+      heaven: "1H_Melee_Attack_Chop", iai: "1H_Melee_Attack_Stab", riposte: "2H_Melee_Attack_Slice",
+      sheathe: "1H_Melee_Attack_Slice_Diagonal", wristlock: "Unarmed_Melee_Attack_Punch_B", wakeup: "1H_Melee_Attack_Slice_Horizontal",
+    },
+  },
   hp: 95,
   walkForward: 2.7,
   walkBack: 2.2,

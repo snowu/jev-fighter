@@ -1,6 +1,8 @@
-// Placeholder 3D renderer: capsules + weapons, readable states, hit sparks, hitbox overlay.
-// It only reads the sim; swapping in rigged models later doesn't touch combat or AI.
+// 3D renderer: rigged models (or capsule fallbacks), readable states, hit sparks, hitbox
+// overlay, PS1-style presentation. It only reads the sim, so visuals never change combat or AI.
 import * as THREE from "three";
+import { FighterModel } from "./models.js";
+import { PS1Pass } from "./ps1.js";
 import { ARENA_RADIUS, BODY_RADIUS, JUGGLE_FRAMES, TIPPER } from "../engine/sim/constants.js";
 import { attackPhase, isCrouching, isGuarding, enraged } from "../engine/sim/world.js";
 
@@ -16,8 +18,12 @@ const C = {
 
 export class Renderer {
   constructor(canvas) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+    this.ps1 = new PS1Pass(this.renderer);
+    try { this.ps1.enabled = localStorage.getItem("jevfighter.ps1") !== "off"; } catch {}
+    this.models = null; // name -> gltf, set once loaded; until then fighters are capsules
+    this.lastUpdate = performance.now();
     this.renderer.shadowMap.enabled = true;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0e1014);
@@ -53,6 +59,7 @@ export class Renderer {
     this.resize = () => {
       this.renderer.setSize(window.innerWidth, window.innerHeight);
       this.camera.aspect = window.innerWidth / window.innerHeight;
+      this.ps1.setSize(window.innerWidth, window.innerHeight);
       this.camera.updateProjectionMatrix();
     };
     window.addEventListener("resize", this.resize);
@@ -60,8 +67,45 @@ export class Renderer {
   }
 
   setup(world) {
-    for (const f of this.fighters) { this.scene.remove(f.group); this.scene.remove(f.hitbox); }
-    this.fighters = world.fighters.map((f) => this.buildFighter(f.char));
+    for (const f of this.fighters) { this.scene.remove(f.group); this.scene.remove(f.hitbox); f.model?.mixer.stopAllAction(); }
+    const mirror = world.fighters[0].char.id === world.fighters[1].char.id;
+    this.fighters = world.fighters.map((f, i) => {
+      if (this.models && f.char.look?.model) {
+        try { return this.buildModelFighter(f.char, mirror && i === 1); } catch (err) { console.warn("model failed, using capsule", err); }
+      }
+      return this.buildFighter(f.char);
+    });
+    this.ps1.wobbleAll(this.scene);
+  }
+
+  togglePS1() {
+    this.ps1.enabled = !this.ps1.enabled;
+    try { localStorage.setItem("jevfighter.ps1", this.ps1.enabled ? "on" : "off"); } catch {}
+    return this.ps1.enabled;
+  }
+
+  buildModelFighter(char, alt) {
+    const model = new FighterModel(char, this.models);
+    if (alt) for (const m of model.bodyMats) m.color.multiply(new THREE.Color(0x8fa0ff)); // tell mirror-match fighters apart
+    const group = new THREE.Group();
+    group.add(model.holder);
+    this.scene.add(group);
+    return { model, group, ...this.buildHitbox() };
+  }
+
+  buildHitbox() {
+    const hitbox = new THREE.Group();
+    const hbMat = new THREE.MeshBasicMaterial({ color: C.active, transparent: true, opacity: 0.3, depthWrite: false });
+    const hbPlane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), hbMat);
+    hbPlane.rotation.x = -Math.PI / 2;
+    const tipMat = new THREE.MeshBasicMaterial({ color: 0x59c98b, transparent: true, opacity: 0.35, depthWrite: false });
+    const tipPlane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), tipMat);
+    tipPlane.rotation.x = -Math.PI / 2;
+    tipPlane.position.y = 0.002;
+    hitbox.add(hbPlane, tipPlane);
+    hitbox.visible = false;
+    this.scene.add(hitbox);
+    return { hitbox, hbPlane, hbMat, tipPlane, tipMat };
   }
 
   // Placeholder bodies: one capsule + head, scaled to a build, with a few accessory shapes and
@@ -173,18 +217,8 @@ export class Renderer {
       addEnd(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshStandardMaterial({ color: 0xc23b2b }), 0.4, -0.05); // tassel
     }
 
-    const hitbox = new THREE.Group();
-    const hbMat = new THREE.MeshBasicMaterial({ color: C.active, transparent: true, opacity: 0.3, depthWrite: false });
-    const hbPlane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), hbMat);
-    hbPlane.rotation.x = -Math.PI / 2;
-    const tipMat = new THREE.MeshBasicMaterial({ color: 0x59c98b, transparent: true, opacity: 0.35, depthWrite: false });
-    const tipPlane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), tipMat);
-    tipPlane.rotation.x = -Math.PI / 2;
-    tipPlane.position.y = 0.002;
-    hitbox.add(hbPlane, tipPlane);
-    hitbox.visible = false;
-    this.scene.add(group, hitbox);
-    return { group, pose, body, bodyMat, pivot, weapon, weaponMat, ends, arm, length, w, hitbox, hbPlane, hbMat, tipPlane, tipMat, baseColor: new THREE.Color(color) };
+    this.scene.add(group);
+    return { group, pose, body, bodyMat, pivot, weapon, weaponMat, ends, arm, length, w, ...this.buildHitbox(), baseColor: new THREE.Color(color) };
   }
 
   /** Converts "into the screen" (+1) / "toward the camera" (-1) into a fighter-relative sidestep direction. */
@@ -225,6 +259,9 @@ export class Renderer {
   }
 
   update(world) {
+    const now = performance.now();
+    this.dt = Math.min(0.1, (now - this.lastUpdate) / 1000);
+    this.lastUpdate = now;
     world.fighters.forEach((f, i) => this.pose(f, this.fighters[i]));
     this.updateCamera(world);
     for (const s of this.sparks) {
@@ -235,10 +272,45 @@ export class Renderer {
     }
     for (const s of this.sparks.filter((s) => s.life > 10)) { this.scene.remove(s.mesh); s.mesh.geometry.dispose(); s.mesh.material.dispose(); }
     this.sparks = this.sparks.filter((s) => s.life <= 10);
-    this.renderer.render(this.scene, this.camera);
+    this.ps1.render(this.scene, this.camera);
+  }
+
+  /** Rigged model: the clip/time comes from the sim state; flashes and glows go on the materials. */
+  poseModel(f, v) {
+    let y = 0;
+    let body = enraged(f) ? (Math.floor(f.frame / 12) % 2 ? 0x3a0604 : 0x1c0302) : 0x000000;
+    let weapon = 0x000000;
+    const phase = attackPhase(f);
+    switch (f.state) {
+      case "attack":
+        if (f.move.parry) weapon = phase === "active" ? 0x1f7a8a : 0x000000;
+        else if (phase === "startup") weapon = 0x4a3600;
+        else if (phase === "active") weapon = 0x8a1010;
+        // Textured models take emissive at full strength, so keep these glows dim.
+        if (f.move.armor && !f.armorUsed && phase !== "recovery") body = f.frame % 6 < 3 ? 0x4a2400 : 0x2a1400;
+        break;
+      case "hitstun": body = f.frame < 5 ? 0x606060 : 0x000000; break;
+      case "blockstun": body = f.frame < 4 ? 0x18306a : 0x000000; break;
+      case "juggle": {
+        const t = Math.min(1, f.frame / f.duration);
+        y = 4 * 1.35 * (f.duration / JUGGLE_FRAMES) * t * (1 - t) + 0.05;
+        break;
+      }
+      case "guardbreak": body = f.frame % 10 < 5 ? 0x5a2ccc : 0x1a0848; break;
+      case "staggered": body = f.frame % 8 < 4 ? 0x1f6a7a : 0x0a2a33; break;
+      case "grabbed": body = 0x3a1460; break;
+    }
+    v.model.setEmissive(body, weapon);
+    v.model.update(f, this.dt ?? 1 / 60);
+    v.model.root.rotation.x = f.state === "juggle" ? -0.6 : 0; // tipped back while airborne (model space: x is sideways)
+    v.group.position.set(f.x, y, f.z);
+    v.group.rotation.y = -f.facing;
+    v.hitbox.visible = false;
+    if (f.state === "attack" && f.move.level !== "throw") this.poseHitbox(f, v, phase);
   }
 
   pose(f, v) {
+    if (v.model) return this.poseModel(f, v);
     let y = 0;
     v.pose.rotation.set(0, 0, 0);
     v.pose.position.set(0, 0, 0);
@@ -413,7 +485,7 @@ export class Renderer {
     ax /= sep; az /= sep;
     // Camera on the side of the fighters' line that keeps player 1 on the left of the screen.
     const px = -az, pz = ax;
-    const dist = Math.max(6.2, sep * 1.25 + 3.6);
+    const dist = Math.max(5.4, sep * 1.2 + 3.3);
     const target = new THREE.Vector3(mid.x + px * dist, 2.3 + sep * 0.08, mid.z + pz * dist);
     this.camPos.lerp(target, 0.1);
     this.camLook.lerp(new THREE.Vector3(mid.x, 1.0, mid.z), 0.15);

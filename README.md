@@ -29,7 +29,7 @@ on the server: the page talks to `/api/brain`, and `server.mjs` forwards that to
 | `I` | throw. Press it right after being grabbed to break the throw. |
 | `T` | taunt (you're open to a counter-hit) |
 | hold an attack button / hold back while knocked down | wake-up attack / roll |
-| `Tab` | move list with frame data · `H` hitboxes · `M` AI mind panel · `Esc` menu · `R` reset (training) |
+| `Tab` | move list with frame data · `H` hitboxes · `P` PS1 filter · `M` AI mind panel · `Esc` menu · `R` reset (training) |
 
 **Strings**: press the next button during a move, e.g. Kara `J J K`. A follow-up comes out
 once the previous hit connects. It's a true combo on hit, but there's a gap on block that
@@ -61,5 +61,18 @@ built from the move data, so there are no AI code changes.
   close on her.
 
 `Tab` in game shows the full move list with frame data and each fighter's signature.
+
+## Look
+
+Characters are rigged low-poly models from [KayKit Adventurers](https://kaylousberg.itch.io/kaykit-adventurers)
+by Kay Lousberg (CC0, in `public/assets/kaykit/`). Kara is the Barbarian, Sen is the Knight
+without a helmet, and Tove is the Hooded Rogue with a spear built in code. The game renders with
+a PS1-style pass: 240p internal resolution, vertex snapping, 15-bit colour with dithering. `P`
+toggles it.
+
+Animations follow the sim, not the other way round. Each attack clip is time-warped so its
+moment of impact lands on the move's first active frame, which makes startup look exactly as
+long as it is. Clip choices live in each roster file's `look.moves`, and impact times in
+`public/game/models.js`. If models fail to load, the old capsules come back.
 
 See [DESIGN.md](DESIGN.md) for how the AI uses Jev.
