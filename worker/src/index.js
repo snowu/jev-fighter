@@ -14,7 +14,7 @@ export default {
     const cors = allowed.includes(origin)
       ? { "access-control-allow-origin": origin, "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "content-type", "access-control-max-age": "86400", vary: "Origin" }
       : null;
-    const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...(cors ?? {}) } });
+    const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...(cors ?? {}) } });
 
     if (!cors) return json(403, { error: "origin not allowed" });
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });

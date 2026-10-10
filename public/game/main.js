@@ -55,7 +55,7 @@ function showMenu(show) {
   if (game) game.paused = show;
 }
 
-fetch(`${API}/api/status`).then((r) => r.json()).then((s) => { hasServer = true; jevAvailable = s.jev; })
+fetch(`${API}/api/status`, { cache: "no-store" }).then((r) => r.json()).then((s) => { hasServer = true; jevAvailable = s.jev; })
   .catch(() => {}).finally(() => {
     if (!jevAvailable && settings.brain === "jev") settings.brain = "local";
     renderMenu();
