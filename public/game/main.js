@@ -22,6 +22,8 @@ let settings = { ...DEFAULTS };
 try { settings = { ...DEFAULTS, ...JSON.parse(localStorage.getItem("jevfighter.settings") ?? "{}") }; } catch {}
 const save = () => { try { localStorage.setItem("jevfighter.settings", JSON.stringify(settings)); } catch {} };
 
+// Brain API: same origin when served by `npm start`; the Cloudflare Worker proxy on GitHub Pages.
+const API = location.hostname.endsWith("github.io") ? "https://jev-fighter-brain.zancato-t.workers.dev" : "";
 let jevAvailable = false;
 let hasServer = false; // false on static hosting (GitHub Pages): no /api proxy, so no Jev
 const roster = Object.values(ROSTER).map((c) => [c.id, c.name, c.title]);
@@ -41,7 +43,7 @@ function renderMenu() {
       const b = document.createElement("button");
       b.className = settings[key] === value ? "on" : "";
       b.innerHTML = `${label}${sub ? `<small>${sub}</small>` : ""}`;
-      if (key === "brain" && value === "jev" && !jevAvailable) { b.disabled = true; b.innerHTML = `Jev<small>${hasServer ? "no API key on server" : "run locally (npm start)"}</small>`; }
+      if (key === "brain" && value === "jev" && !jevAvailable) { b.disabled = true; b.innerHTML = `Jev<small>${hasServer ? "no API key on server" : "brain server unreachable"}</small>`; }
       b.onclick = () => { settings[key] = value; save(); renderMenu(); };
       el.appendChild(b);
     }
@@ -53,7 +55,7 @@ function showMenu(show) {
   if (game) game.paused = show;
 }
 
-fetch("/api/status").then((r) => r.json()).then((s) => { hasServer = true; jevAvailable = s.jev; })
+fetch(`${API}/api/status`).then((r) => r.json()).then((s) => { hasServer = true; jevAvailable = s.jev; })
   .catch(() => {}).finally(() => {
     if (!jevAvailable && settings.brain === "jev") settings.brain = "local";
     renderMenu();
@@ -76,7 +78,7 @@ const modelsReady = preloadModels(Object.values(ROSTER))
   .finally(() => { startBtn.disabled = false; startBtn.textContent = "FIGHT"; });
 
 function makeBrain() {
-  return settings.brain === "jev" && jevAvailable ? new JevBrain({ transport: proxyTransport() }) : new LocalBrain();
+  return settings.brain === "jev" && jevAvailable ? new JevBrain({ transport: proxyTransport(`${API}/api/brain`) }) : new LocalBrain();
 }
 
 function startGame() {

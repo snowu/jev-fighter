@@ -1,0 +1,16 @@
+# Jev proxy for the GitHub Pages build: holds the TypeSafe key as a secret so the browser never sees it.
+#   npx wrangler secret put TYPESAFE_API_KEY   (once)
+#   npx wrangler deploy
+name = "jev-fighter-brain"
+main = "src/index.js"
+compatibility_date = "2026-08-18"
+
+[vars]
+# Secrets are NOT here (TYPESAFE_API_KEY is set with `wrangler secret put`).
+ALLOWED_ORIGINS = "https://snowu.github.io,http://localhost:5173"
+
+# Per-visitor limit so strangers can't burn the key. An AI-vs-AI match makes ~6 requests/s.
+[[ratelimits]]
+name = "LIMITER"
+namespace_id = "7301"
+simple = { limit = 600, period = 60 }
